@@ -1,0 +1,55 @@
+
+🚗  Ghost Driver Backend running on http://localhost:4000
+   Health: http://localhost:4000/api/health
+   ENV:    development
+
+[Socket] Client connected: SKbTJg5vs8Qt7cYoAAAB
+[Socket] Client connected: BZ1PLvc3kQwEqke-AAAD
+[Signal] 🚗 Vehicle joined: BZ1PLvc3kQwEqke-AAAD (Webcam-Sim)
+[Socket] Client connected: hZDZEhrqdzdXkFruAAAF
+[Signal] 🚗 Vehicle joined: BZ1PLvc3kQwEqke-AAAD (Webcam-Sim)
+[Socket] Client connected: ysjL7Gi2roUTQoZgAAAH
+[Signal] 🔴 Vehicle disconnected: BZ1PLvc3kQwEqke-AAAD (Webcam-Sim)
+[Socket] Client disconnected: BZ1PLvc3kQwEqke-AAAD — transport close
+[Socket] Client disconnected: SKbTJg5vs8Qt7cYoAAAB — transport error
+[Socket] Client disconnected: hZDZEhrqdzdXkFruAAAF — transport error
+[Socket] Client connected: p_RSOsP2-JJfo1WLAAAJ
+[Signal] 🚗 Vehicle joined: p_RSOsP2-JJfo1WLAAAJ (Webcam-Sim)
+[Socket] Client disconnected: ysjL7Gi2roUTQoZgAAAH — transport close
+[Socket] Client connected: vaUwB-AWne38YeTCAAAM
+[CARLA] Simulated connection established
+[Control] Vehicle connect requested by vaUwB-AWne38YeTCAAAM
+[Signal] 🔴 Vehicle disconnected: p_RSOsP2-JJfo1WLAAAJ (Webcam-Sim)
+[Socket] Client disconnected: p_RSOsP2-JJfo1WLAAAJ — client namespace disconnect
+[Socket] Client connected: JqipTNIdhgnfA648AAAO
+[Signal] 🚗 Vehicle joined: JqipTNIdhgnfA648AAAO (Webcam-Sim)
+[Signal] 🔴 Vehicle disconnected: JqipTNIdhgnfA648AAAO (Webcam-Sim)
+[Socket] Client disconnected: JqipTNIdhgnfA648AAAO — transport close
+[Socket] Client connected: jR5ThyzokGklM5BtAAAQ
+[Signal] 🚗 Vehicle joined: jR5ThyzokGklM5BtAAAQ (Webcam-Sim)
+[CARLA] Disconnected
+[Control] Vehicle disconnect requested by vaUwB-AWne38YeTCAAAM
+[Signal] 📡 Stream starting: session=be2e3602 op=vaUwB- vehicle=jR5Thy
+[Signal] 📨 Offer → vaUwB-
+[Signal] 📩 Answer → jR5Thy
+[Signal] 🔴 Vehicle disconnected: jR5ThyzokGklM5BtAAAQ (Webcam-Sim)
+[Socket] Client disconnected: jR5ThyzokGklM5BtAAAQ — client namespace disconnect
+[CARLA] Simulated connection established
+[Control] Vehicle connect requested by vaUwB-AWne38YeTCAAAM
+[Socket] Client connected: yiW8er9Oo5bL5TG0AAAS
+[Signal] 🚗 Vehicle joined: yiW8er9Oo5bL5TG0AAAS (Webcam-Sim)
+[Signal] 🔴 Vehicle disconnected: yiW8er9Oo5bL5TG0AAAS (Webcam-Sim)
+[Socket] Client disconnected: yiW8er9Oo5bL5TG0AAAS — client namespace disconnect
+[Socket] Client connected: OwvlWFu_92ev45spAAAU
+[Signal] 🚗 Vehicle joined: OwvlWFu_92ev45spAAAU (Webcam-Sim)
+[CARLA] Disconnected
+[Control] Vehicle disconnect requested by vaUwB-AWne38YeTCAAAM
+[Signal] 📡 Stream starting: session=14582e4c op=vaUwB- vehicle=OwvlWF
+[Signal] 📨 Offer → vaUwB-
+[Signal] 📩 Answer → OwvlWF
+[Signal] 🔴 Vehicle disconnected: OwvlWFu_92ev45spAAAU (Webcam-Sim)
+[Socket] Client disconnected: OwvlWFu_92ev45spAAAU — client namespace disconnect
+[CARLA] Simulated connection established
+[Control] Vehicle connect requested by vaUwB-AWne38YeTCAAAM
+[CARLA] Disconnected
+[Control] Vehicle disconnect requested by vaUwB-AWne38YeTCAAAM

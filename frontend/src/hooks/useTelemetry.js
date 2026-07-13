@@ -1,0 +1,39 @@
+/**
+ * useTelemetry — subscribes to telemetry:update socket events
+ * and measures round-trip latency via ping/pong.
+ */
+import { useEffect } from 'react';
+import { socket } from '../services/socket';
+import useVehicleStore from '../store/vehicleStore';
+
+const PING_INTERVAL_MS = 2000;
+
+export function useTelemetry() {
+  const updateTelemetry = useVehicleStore((s) => s.updateTelemetry);
+
+  useEffect(() => {
+    // Subscribe to live telemetry
+    socket.on('telemetry:update', (data) => {
+      updateTelemetry(data);
+    });
+
+    // Ping every 2 seconds to measure latency
+    const pingTimer = setInterval(() => {
+      if (socket.connected) {
+        socket.emit('ping:measure', Date.now());
+      }
+    }, PING_INTERVAL_MS);
+
+    socket.on('pong:measure', ({ latency }) => {
+      updateTelemetry({ latency });
+    });
+
+    return () => {
+      socket.off('telemetry:update');
+      socket.off('pong:measure');
+      clearInterval(pingTimer);
+    };
+  }, []);
+}
+
+export default useTelemetry;

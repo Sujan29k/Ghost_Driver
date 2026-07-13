@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ghost Driver — Vehicle Simulator</title>
+  <style>
+    /* ── Design tokens ─────────────────────────────────────────── */
+    :root {
+      --bg:      #050a0f;
+      --surface: #0d1821;
+      --panel:   #0f1f2e;
+      --border:  #1a3a5c;
+      --accent:  #00d4ff;
+      --success: #00ff87;
+      --warning: #ffaa00;
+      --danger:  #ff3b5c;
+      --text:    #c8dff0;
+      --muted:   #5a7a95;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 13px;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Layout ────────────────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .brand-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 12px var(--accent);
+      animation: pulse 2s infinite;
+    }
+    .brand h1 {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .brand h1 span { color: var(--accent); }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      font-size: 11px;
+      font-family: 'Courier New', monospace;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+    }
+    .badge .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+    .badge.connected .dot { background: var(--success); box-shadow: 0 0 6px var(--success); animation: pulse 2s infinite; }
+    .badge.streaming .dot { background: var(--accent); box-shadow: 0 0 6px var(--accent); animation: pulse 1s infinite; }
+    .badge.error .dot    { background: var(--danger); }
+
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      padding: 20px;
+      position: relative;
+    }
+
+    /* ── Camera preview ────────────────────────────────────────── */
+    .camera-container {
+      position: relative;
+      width: 100%;
+      max-width: 480px;
+      aspect-ratio: 16/9;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      overflow: hidden;
+      background: var(--surface);
+    }
+
+    video#preview {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .no-camera {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .no-camera svg { opacity: 0.4; }
+
+    /* LIVE badge overlay */
+    .live-badge {
+      position: absolute;
+      top: 10px; left: 10px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      background: rgba(0,0,0,0.7);
+      border: 1px solid var(--border);
+      font-size: 10px;
+      font-family: monospace;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      color: var(--success);
+      display: none;
+    }
+    .live-badge.visible { display: flex; }
+    .live-badge .dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 6px var(--success);
+      animation: pulse 1s infinite;
+    }
+
+    /* Corner decorations */
+    .corners::before, .corners::after,
+    .corners .c3, .corners .c4 {
+      content: '';
+      position: absolute;
+      width: 14px; height: 14px;
+      border-color: rgba(0,212,255,0.4);
+      border-style: solid;
+    }
+    .corners::before { top: 6px; left: 6px; border-width: 1px 0 0 1px; }
+    .corners::after  { top: 6px; right: 6px; border-width: 1px 1px 0 0; content: ''; position: absolute; width: 14px; height: 14px; }
+    .corners .c3     { bottom: 6px; left: 6px; border-width: 0 0 1px 1px; position: absolute; }
+    .corners .c4     { bottom: 6px; right: 6px; border-width: 0 1px 1px 0; position: absolute; }
+
+    /* ── Controls ────────────────────────────────────────────────── */
+    .controls {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: 100%;
+      max-width: 480px;
+    }
+
+    .btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      transition: all 0.2s;
+      user-select: none;
+    }
+    .btn:hover { border-color: var(--muted); }
+    .btn:active { transform: scale(0.98); }
+    .btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+
+    .btn-accent  { background: linear-gradient(135deg, #006fa6, #0090b0); border-color: var(--accent); color: #fff; }
+    .btn-accent:hover { box-shadow: 0 0 20px rgba(0,212,255,0.3); }
+    .btn-success { background: linear-gradient(135deg, #004d2e, #008055); border-color: var(--success); color: #fff; }
+    .btn-success:hover { box-shadow: 0 0 20px rgba(0,255,135,0.25); }
+    .btn-danger  { background: linear-gradient(135deg, #8b0000, #c0143c); border-color: var(--danger); color: #fff; }
+
+    /* ── Log ──────────────────────────────────────────────────── */
+    .log-panel {
+      width: 100%; max-width: 480px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 12px;
+      max-height: 90px;
+      overflow-y: auto;
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .log-panel .entry { padding: 1px 0; }
+    .log-panel .entry.ok   { color: var(--success); }
+    .log-panel .entry.info { color: var(--accent); }
+    .log-panel .entry.warn { color: var(--warning); }
+    .log-panel .entry.err  { color: var(--danger); }
+
+    /* ── Animations ───────────────────────────────────────────── */
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+    footer {
+      padding: 8px 20px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      font-size: 10px;
+      color: var(--muted);
+      font-family: monospace;
+      letter-spacing: 0.08em;
+      text-align: center;
+      flex-shrink: 0;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="brand-dot"></div>
+    <h1>Ghost<span>Driver</span> — Vehicle Simulator</h1>
+  </div>
+  <div id="status-badge" class="badge">
+    <div class="dot"></div>
+    <span id="status-text">Disconnected</span>
+  </div>
+</header>
+
+<main>
+  <!-- Camera viewport -->
+  <div class="camera-container corners">
+    <div class="no-camera" id="no-camera">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
+        <circle cx="12" cy="13" r="4"/>
+      </svg>
+      <span>Camera not started</span>
+    </div>
+    <video id="preview" autoplay muted playsinline style="display:none;"></video>
+    <div class="live-badge" id="live-badge">
+      <div class="dot"></div>
+      STREAMING
+    </div>
+    <div class="c3"></div>
+    <div class="c4"></div>
+  </div>
+
+  <!-- Action Buttons -->
+  <div class="controls">
+    <button class="btn btn-accent" id="btn-join" onclick="joinAsVehicle()">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      Connect to Dashboard
+    </button>
+
+    <button class="btn btn-success" id="btn-cam" onclick="startCamera()" disabled>
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+      Start Camera
+    </button>
+
+    <button class="btn btn-danger" id="btn-stop" onclick="stopAll()" disabled>
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+      Stop / Disconnect
+    </button>
+  </div>
+
+  <!-- Log output -->
+  <div class="log-panel" id="log"></div>
+</main>
+
+<footer>
+  Ghost Driver Phase 2 — WebRTC Webcam Test &nbsp;|&nbsp; Signal server: localhost:4000
+</footer>
+
+<!-- Load Socket.IO from our backend -->
+<!-- Load Socket.IO via Vite proxy (same-origin, avoids CORS on script load) -->
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  // ── State ─────────────────────────────────────────────────────────────────
+  let socket = null;
+  let localStream = null;
+  let pc = null; // RTCPeerConnection
+  let isJoined = false;
+
+  const RTC_CONFIG = {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+    ],
+  };
+
+  // ── DOM helpers ───────────────────────────────────────────────────────────
+  function log(msg, type = 'info') {
+    const el = document.getElementById('log');
+    const entry = document.createElement('div');
+    entry.className = `entry ${type}`;
+    const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
+    entry.textContent = `[${ts}] ${msg}`;
+    el.appendChild(entry);
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function setStatus(text, cls = '') {
+    const badge = document.getElementById('status-badge');
+    const statusText = document.getElementById('status-text');
+    badge.className = `badge ${cls}`;
+    statusText.textContent = text;
+  }
+
+  function setBtn(id, disabled) {
+    const el = document.getElementById(id);
+    if (el) el.disabled = disabled;
+  }
+
+  // ── Step 1: Connect to signaling server and join as vehicle ───────────────
+  function joinAsVehicle() {
+    if (isJoined) return;
+
+    log('Connecting to signaling server...', 'info');
+    // Connect via same-origin (Vite proxies /socket.io/ → localhost:4000)
+    socket = io(window.location.origin, {
+      path: '/socket.io/',
+      transports: ['websocket', 'polling'],
+    });
+
+
+    socket.on('connect', () => {
+      log(`Connected! Socket ID: ${socket.id.slice(0, 8)}...`, 'ok');
+      setStatus('Connected', 'connected');
+      setBtn('btn-join', true);
+      setBtn('btn-cam', false);
+      isJoined = true;
+
+      // Announce ourselves to the dashboard
+      socket.emit('vehicle:join', { name: 'Webcam-Sim' });
+    });
+
+    socket.on('vehicle:join:ack', ({ success }) => {
+      if (success) log('Registered as vehicle ✓ — Dashboard can now see us', 'ok');
+    });
+
+    socket.on('disconnect', () => {
+      log('Disconnected from server', 'warn');
+      setStatus('Disconnected', '');
+      isJoined = false;
+      setBtn('btn-join', false);
+      setBtn('btn-cam', true);
+    });
+
+    socket.on('connect_error', (err) => {
+      log(`Connection error: ${err.message}`, 'err');
+      setStatus('Error', 'error');
+    });
+
+    // ── Step 4: Dashboard requested a stream — we send the offer ─────────
+    socket.on('stream:start', async ({ sessionId, operatorId }) => {
+      log(`📡 Stream requested by dashboard (session: ${sessionId.slice(0, 8)})`, 'info');
+
+      if (!localStream) {
+        log('Camera not started — auto-starting camera...', 'warn');
+        await startCamera();
+        if (!localStream) {
+          log('❌ Camera unavailable — cannot stream', 'err');
+          return;
+        }
+      }
+
+      await createOfferAndStream(sessionId, operatorId);
+    });
+
+    // ── Step 6: Receive answer from operator ──────────────────────────────
+    socket.on('webrtc:answer', async ({ sdp }) => {
+      if (!pc) return;
+      log('📩 Answer received from dashboard', 'ok');
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        log('Remote description set ✓', 'ok');
+      } catch (e) {
+        log(`Answer error: ${e.message}`, 'err');
+      }
+    });
+
+    // ── ICE candidates from operator ──────────────────────────────────────
+    socket.on('webrtc:ice-candidate', async ({ candidate }) => {
+      if (pc && candidate) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (e) {
+          // Often harmless — remote may not be ready yet
+          console.warn('ICE add:', e.message);
+        }
+      }
+    });
+
+    // Dashboard stopped stream
+    socket.on('stream:stopped', () => {
+      log('Dashboard stopped the stream', 'warn');
+      closePeerConnection();
+      setStatus('Connected', 'connected');
+      document.getElementById('live-badge').classList.remove('visible');
+    });
+  }
+
+  // ── Step 2: Get webcam ─────────────────────────────────────────────────────
+  async function startCamera() {
+    try {
+      log('Requesting camera access...', 'info');
+      localStream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 1280, height: 720, frameRate: 30 },
+        audio: false,
+      });
+
+      const preview = document.getElementById('preview');
+      preview.srcObject = localStream;
+      preview.style.display = 'block';
+      document.getElementById('no-camera').style.display = 'none';
+      setBtn('btn-stop', false);
+      log('Camera started ✓ — Ready to stream to dashboard', 'ok');
+    } catch (err) {
+      log(`Camera error: ${err.message}`, 'err');
+      if (err.name === 'NotAllowedError') {
+        log('⚠️  Allow camera access in your browser and try again', 'warn');
+      }
+    }
+  }
+
+  // ── Step 3+: Create RTCPeerConnection, add tracks, create offer ──────────
+  async function createOfferAndStream(sessionId, operatorId) {
+    closePeerConnection(); // clean up any previous connection
+
+    pc = new RTCPeerConnection(RTC_CONFIG);
+    log('RTCPeerConnection created', 'info');
+
+    // Add our camera tracks to the peer connection
+    localStream.getTracks().forEach(track => {
+      pc.addTrack(track, localStream);
+    });
+    log(`Added ${localStream.getTracks().length} track(s) to peer connection`, 'info');
+
+    // Send our ICE candidates to the operator via signaling server
+    pc.onicecandidate = ({ candidate }) => {
+      if (candidate && socket) {
+        socket.emit('webrtc:ice-candidate', {
+          sessionId,
+          candidate,
+          targetId: operatorId,
+        });
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      log(`ICE state: ${pc.iceConnectionState}`, pc.iceConnectionState === 'connected' ? 'ok' : 'info');
+      if (pc.iceConnectionState === 'connected') {
+        log('🎉 P2P connection established! Video streaming to dashboard', 'ok');
+        setStatus('Streaming', 'streaming');
+        document.getElementById('live-badge').classList.add('visible');
+      }
+      if (['failed', 'disconnected'].includes(pc.iceConnectionState)) {
+        log(`Connection ${pc.iceConnectionState}`, 'warn');
+        setStatus('Connected', 'connected');
+        document.getElementById('live-badge').classList.remove('visible');
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      log(`Connection state: ${pc.connectionState}`, 'info');
+    };
+
+    // Create and send offer
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      log('📨 Sending offer to dashboard...', 'info');
+      socket.emit('webrtc:offer', {
+        sessionId,
+        sdp: offer,
+        targetId: operatorId,
+      });
+    } catch (e) {
+      log(`Offer error: ${e.message}`, 'err');
+    }
+  }
+
+  // ── Cleanup ───────────────────────────────────────────────────────────────
+  function closePeerConnection() {
+    if (pc) {
+      pc.close();
+      pc = null;
+    }
+  }
+
+  function stopAll() {
+    closePeerConnection();
+    if (localStream) {
+      localStream.getTracks().forEach(t => t.stop());
+      localStream = null;
+    }
+    const preview = document.getElementById('preview');
+    preview.srcObject = null;
+    preview.style.display = 'none';
+    document.getElementById('no-camera').style.display = 'flex';
+    document.getElementById('live-badge').classList.remove('visible');
+
+    if (socket) {
+      socket.disconnect();
+      socket = null;
+    }
+    isJoined = false;
+    setStatus('Disconnected', '');
+    setBtn('btn-join', false);
+    setBtn('btn-cam', true);
+    setBtn('btn-stop', true);
+    log('Stopped and disconnected', 'warn');
+  }
+</script>
+</body>
+</html>
