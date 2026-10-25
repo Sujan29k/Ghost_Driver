@@ -1,7 +1,6 @@
 /**
  * VideoFeed — main camera / stream viewport.
- * Phase 1: shows a waiting state with futuristic overlay.
- * Phase 2: video element receives WebRTC srcObject from CARLA.
+ * Receives a WebRTC camera or synthetic demo stream.
  */
 import React, { useRef } from 'react';
 import useVehicleStore from '../../store/vehicleStore';
@@ -10,8 +9,11 @@ import { formatHeading } from '../../utils/formatters';
 
 export default function VideoFeed() {
   const videoRef = useRef(null);
-  const { streamActive, vehicleConnected, speed, heading, fps, networkQuality } = useVehicleStore();
-  const { startStream, stopStream } = useWebRTC(videoRef);
+  const { streamActive, vehicleConnected, speed, heading, fps, networkQuality, mode, statsAvailable, packetLoss, videoRoute, socketConnected, vehicles, webrtcStatus } = useVehicleStore();
+  useWebRTC(videoRef);
+  const connectionState = !socketConnected ? 'Disconnected' : streamActive ? 'Streaming'
+    : webrtcStatus === 'connecting' ? 'Video connecting' : vehicles.some((v) => v.ready && v.mode === 'carla')
+      ? 'CARLA ready' : vehicles.length ? 'Sender connected' : 'Disconnected';
 
   return (
     <div className="ghost-panel relative flex-1 overflow-hidden scanlines">
@@ -21,7 +23,7 @@ export default function VideoFeed() {
         autoPlay
         muted
         playsInline
-        className={`absolute inset-0 w-full h-full object-cover ${streamActive ? 'opacity-100' : 'opacity-0'}`}
+        className={`absolute inset-0 w-full h-full object-contain ${streamActive ? 'opacity-100' : 'opacity-0'}`}
       />
 
       {/* No-stream overlay */}
@@ -29,8 +31,8 @@ export default function VideoFeed() {
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 grid-bg">
           {/* Crosshair */}
           <div className="relative w-32 h-32">
-            <div className="absolute inset-0 border border-ghost-border rounded-full animate-spin-slow opacity-30" />
-            <div className="absolute inset-4 border border-ghost-accent/30 rounded-full animate-[spin_5s_linear_infinite_reverse]" />
+            <div className="absolute inset-0 border border-ghost-border rounded-full  opacity-30" />
+            <div className="absolute inset-4 border border-ghost-accent/30 rounded-full " />
             {/* Center dot */}
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="w-2 h-2 rounded-full bg-ghost-accent animate-pulse" />
@@ -48,27 +50,19 @@ export default function VideoFeed() {
           </div>
 
           <div className="text-center">
-            <p className="text-ghost-muted text-xs font-mono tracking-widest uppercase animate-pulse">
-              {vehicleConnected ? 'Vehicle Connected — Ready to Stream' : 'Waiting for Vehicle Stream...'}
+            <p className="text-ghost-muted text-xs font-mono tracking-widest uppercase">
+              {connectionState} · Waiting for {mode === 'mock' ? 'demo' : 'CARLA'} video
             </p>
             <p className="text-ghost-border text-[10px] font-mono mt-1">
-              WebRTC · CARLA Camera · Phase 2
+              No live frames are being displayed
             </p>
           </div>
 
-          {vehicleConnected && (
-            <button
-              className="btn-ghost btn-accent text-xs"
-              onClick={startStream}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                <polygon points="5 3 19 12 5 21 5 3" />
-              </svg>
-              Start Stream
-            </button>
-          )}
+
         </div>
       )}
+
+      {streamActive && <span className="sr-only" role="status">Streaming</span>}
 
       {/* HUD Overlays (always visible when vehicle connected or streaming) */}
       {(vehicleConnected || streamActive) && (
@@ -77,7 +71,8 @@ export default function VideoFeed() {
           <div className="absolute top-3 left-3 flex items-center gap-2 px-2.5 py-1.5 rounded bg-black/60 backdrop-blur-sm border border-ghost-border">
             <div className={`w-2 h-2 rounded-full ${streamActive ? 'bg-ghost-success animate-pulse' : 'bg-ghost-warning animate-pulse'}`} />
             <span className="text-[11px] font-mono tracking-widest text-ghost-text">
-              {streamActive ? 'LIVE' : 'STANDBY'}
+              <span>{streamActive ? (mode === 'mock' ? 'DEMO VIDEO' : 'LIVE CARLA VIDEO') : 'STANDBY'}</span>
+              {streamActive && <span className="ml-2 text-ghost-success normal-case">Streaming</span>}
             </span>
           </div>
 
@@ -85,7 +80,7 @@ export default function VideoFeed() {
           <div className="absolute top-3 right-3 px-2.5 py-1.5 rounded bg-black/60 backdrop-blur-sm border border-ghost-border">
             <span className="text-[11px] font-mono text-ghost-muted">FPS </span>
             <span className={`text-[11px] font-mono font-bold ${fps >= 30 ? 'text-ghost-success' : fps >= 15 ? 'text-yellow-400' : 'text-ghost-danger'}`}>
-              {Math.round(fps)}
+              {statsAvailable ? Math.round(fps) : '—'} · Loss {statsAvailable ? `${packetLoss.toFixed(1)}%` : '—'} · {videoRoute}
             </span>
           </div>
 

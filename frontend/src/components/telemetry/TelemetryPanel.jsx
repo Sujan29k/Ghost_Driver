@@ -72,7 +72,7 @@ function ControlInputBar({ label, value, colorClass, invert = false }) {
 }
 
 export default function TelemetryPanel() {
-  const { speed, fps, latency, packetLoss, networkQuality, throttle, brake, steer, gear, heading } = useVehicleStore();
+  const { speed, fps, latency, packetLoss, networkQuality, throttle, brake, steer, gear, heading, statsAvailable } = useVehicleStore();
 
   const latInfo = formatLatency(latency);
   const fpsInfo = formatFPS(fps);
@@ -87,34 +87,34 @@ export default function TelemetryPanel() {
       <div className="grid grid-cols-2 gap-2">
         <TelemetryCard
           label="FPS"
-          value={fpsInfo.label}
+          value={statsAvailable ? fpsInfo.label : '—'}
           colorClass={fpsInfo.colorClass}
-          subtext="Stream Rate"
+          subtext="Received frames"
           icon={
             <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"/></svg>
           }
         />
         <TelemetryCard
-          label="Latency"
+          label="Server RTT"
           value={latInfo.label}
           colorClass={latInfo.colorClass}
-          subtext="Round-trip"
+          subtext="Browser ↔ backend"
           icon={
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
           }
         />
         <TelemetryCard
           label="Packet Loss"
-          value={packetLoss.toFixed(1)}
+          value={statsAvailable ? packetLoss.toFixed(1) : '—'}
           unit="%"
           colorClass={packetLoss < 1 ? 'text-ghost-success' : 'text-ghost-warning'}
-          subtext="Dropped pkts"
+          subtext="Latest interval"
         />
         <TelemetryCard
           label="Network"
           value={netInfo.label}
           colorClass={netInfo.colorClass}
-          subtext="Quality"
+          subtext="Local backend RTT"
         />
       </div>
 

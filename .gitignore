@@ -51,3 +51,11 @@ Thumbs.db
 # Misc caches
 .cache/
 .parcel-cache/
+
+# Commit templates, never local credentials.
+!**/.env.example
+frontend/test-results/
+frontend/playwright-report/
+
+# Local connection notes containing credentials.
+/file.txt

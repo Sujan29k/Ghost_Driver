@@ -41,9 +41,9 @@ export default function Header() {
       {/* Right — Connection Info */}
       <div className="flex items-center gap-6">
         <div className="flex items-center gap-2 text-xs font-mono text-ghost-muted">
-          <span className="uppercase tracking-wider">Latency</span>
+          <span className="uppercase tracking-wider">Server RTT</span>
           <span className={`font-bold ${latency < 100 ? 'text-ghost-success' : 'text-ghost-warning'}`}>
-            {Math.round(latency)}ms
+            {latency == null ? '—' : `${Math.round(latency)}ms`}
           </span>
         </div>
 

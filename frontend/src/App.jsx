@@ -28,7 +28,7 @@ export default function App() {
       <div className="flex flex-1 overflow-hidden gap-3 p-3">
 
         {/* LEFT SIDEBAR — Connection + Controls */}
-        <aside className="flex flex-col gap-3 w-56 flex-shrink-0">
+        <aside className="flex flex-col gap-3 w-56 flex-shrink-0 overflow-y-auto">
           <ConnectionControls />
           <ControlStatus />
           <KeyboardHelp />

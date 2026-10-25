@@ -1,26 +1,15 @@
-/**
- * Socket.IO client singleton.
- * Import `socket` anywhere to send/receive events.
- */
 import { io } from 'socket.io-client';
-
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:4000';
-
-export const socket = io(BACKEND_URL, {
-  autoConnect: false,
-  transports: ['websocket', 'polling'],
-  reconnectionAttempts: 10,
-  reconnectionDelay: 1000,
+export const socket = io(import.meta.env.VITE_BACKEND_URL || undefined, {
+  autoConnect: false, reconnectionDelay: 1000,
 });
-
-// Debug logging in dev
-if (import.meta.env.DEV) {
-  socket.onAny((event, ...args) => {
-    console.debug(`[Socket ←] ${event}`, args);
-  });
-  socket.onAnyOutgoing((event, ...args) => {
-    console.debug(`[Socket →] ${event}`, args);
+export function request(event, data = {}) {
+  return new Promise((resolve, reject) => {
+    if (!socket.connected) return reject(new Error('Server is disconnected'));
+    socket.timeout(5000).emit(event, data, (error, result) => {
+      if (error) reject(new Error('Server did not respond'));
+      else if (!result?.success) reject(new Error(result?.message || 'Request failed'));
+      else resolve(result);
+    });
   });
 }
-
 export default socket;

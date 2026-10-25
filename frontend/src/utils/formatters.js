@@ -16,6 +16,7 @@ export function formatSpeed(kph) {
  * @returns {{ label: string, colorClass: string }}
  */
 export function formatLatency(ms) {
+  if (ms == null) return { label: '—', colorClass: 'text-ghost-muted' };
   const label = `${Math.round(ms)}ms`;
   if (ms < 50)  return { label, colorClass: 'text-ghost-success' };
   if (ms < 100) return { label, colorClass: 'text-yellow-400' };
@@ -47,12 +48,13 @@ export function formatHeading(deg) {
  */
 export function formatNetworkQuality(quality) {
   const map = {
+    unknown: { label: 'UNKNOWN', colorClass: 'text-ghost-muted', barColor: 'bg-ghost-border' },
     excellent: { label: 'EXCELLENT', colorClass: 'text-ghost-success', barColor: 'bg-ghost-success' },
     good:      { label: 'GOOD',      colorClass: 'text-blue-400',       barColor: 'bg-blue-400' },
     poor:      { label: 'POOR',      colorClass: 'text-yellow-400',     barColor: 'bg-yellow-400' },
     critical:  { label: 'CRITICAL',  colorClass: 'text-ghost-danger',   barColor: 'bg-ghost-danger' },
   };
-  return map[quality] || map.excellent;
+  return map[quality] || map.unknown;
 }
 
 /**

@@ -1,0 +1,97 @@
+# GhostDriver — run checklist for our next session
+
+We will continue with the unchecked items below. The first goal is live CARLA
+video between the two networks; leave driving controls stopped until video works.
+Secret values belong only in the ignored .env files, not in this checklist.
+
+## Done
+
+- [x] Dashboard token configured (confirmed by you).
+- [x] Sender token configured (confirmed by you).
+- [x] Cloudflare Tunnel client, cloudflared, installed (confirmed by you).
+- [x] Remote-video code and separate setup guides added.
+- [x] Local validation passed: 11 backend tests, 2 browser tests, 4 Python tests,
+      and the frontend build. Tests used a demo sender / CARLA API stub;
+      real CARLA and the two-network connection still need testing.
+
+## Your laptop — next steps
+
+- [ ] Configure an external TURN service in backend/.env:
+      TURN_URL, TURN_USERNAME, TURN_PASSWORD. Keep the STUN_URL setting too.
+      Both peers receive these settings from the authenticated backend.
+      Leaving all TURN fields empty permits a STUN-only trial, but connections
+      across different networks may fail.
+- [ ] Check that actual .env files and credentials are excluded from the GitHub
+      changes. Commit .env.example templates only.
+- [ ] Commit and push the updated project so your friend can get the same code.
+- [ ] From the Ghostdriver folder, start the website and backend:
+
+      npm run dev
+
+      If dependencies are missing, run npm run setup first. Use Node 22.12+.
+- [ ] Open http://localhost:5173, enter the dashboard token, and click
+      Connect backend. Keep the app terminal running.
+- [ ] In a second terminal, start the tunnel:
+
+      cloudflared tunnel --url http://127.0.0.1:4000
+
+- [ ] Share the printed HTTPS tunnel address with your friend, and share the
+      sender token privately. Do not share the dashboard token or put tokens
+      in the URL. Keep cloudflared running.
+
+## Your friend's GPU computer
+
+- [ ] Clone the GitHub repository, or pull the latest changes.
+- [ ] Confirm the installed CARLA simulator version and choose a Python version
+      compatible with its matching CARLA Python wheel and bridge dependencies.
+- [ ] Create and activate a Python virtual environment. From the project root
+      on Linux:
+
+      python3 -m venv carla-service/.venv
+      source carla-service/.venv/bin/activate
+      python -m pip install -r carla-service/requirements.txt
+
+      On Windows PowerShell, use py instead of python3 to create the environment,
+      then activate with carla-service/.venv/Scripts/Activate.ps1.
+- [ ] Install the CARLA Python client matching the simulator version exactly.
+      Use the matching wheel's actual path with python -m pip install.
+- [ ] Copy carla-service/.env.example to carla-service/.env and fill in:
+
+      BACKEND_URL=<the public HTTPS tunnel address>
+      SENDER_TOKEN=<the privately shared sender token>
+
+      No separate TURN settings are needed on this computer.
+- [ ] Start CARLA with rendering enabled and an asynchronous world. Keep its
+      ports private; do not forward or tunnel ports 2000–2002.
+- [ ] With the virtual environment active, start the bridge from the project root:
+
+      python carla-service/bridge.py --host 127.0.0.1 --port 2000
+
+      Keep CARLA and the bridge running. Your friend does not need to start
+      React, Node, or cloudflared.
+
+## Together — verify video first
+
+- [ ] On the laptop, confirm Sender connected, then CARLA ready.
+- [ ] Click Connect beside the sender, then Start stream.
+- [ ] Confirm actual CARLA footage, nonzero received FPS, packet-loss readings,
+      and the Direct / TURN relay route indicator.
+- [ ] Stop video, enable Test TURN only, and start again. Confirm received
+      video and TURN relay. Then stop and disable the option for normal use.
+- [ ] Test connection loss/recovery. Video must clear when frames stop, and
+      controls must remain stopped after recovery. After a signaling reconnect,
+      select the sender and start video again.
+- [ ] Only after video works, deliberately test Resume controls, W/A/S/D,
+      emergency stop, and focus-loss braking with your friend watching CARLA.
+
+## Reminders for tomorrow
+
+- Both laptop terminals, CARLA, and the Python bridge must remain running.
+- A restarted Quick Tunnel may have a new URL. Update your friend's BACKEND_URL
+  and restart the bridge if it changes.
+- Cloudflare Tunnel carries signaling/status/controls. WebRTC carries video
+  directly or through TURN; the tunnel does not replace TURN.
+- Real CARLA compatibility, internet connectivity, and credentialed TURN have
+  not yet been verified.
+- Detailed instructions: docs/LAPTOP_SETUP.md, docs/FRIEND_SETUP.md,
+  docs/CONNECTION_TEST.md. Local test record: docs/VALIDATION.md.

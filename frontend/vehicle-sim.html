@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GhostDriver demo vehicle</title></head>
+<body><main class="demo"><header><div><p class="eyebrow">GHOSTDRIVER / VEHICLE PROVIDER</p><h1>Demo vehicle</h1></div><a href="/" target="_blank">Open dashboard ↗</a></header>
+<p>A synthetic road scene for testing video, steering, braking, and telemetry. No CARLA or camera required.</p>
+<form id="sender-login"><label for="sender-token">Sender token</label> <input type="password" id="sender-token" autocomplete="off" required> <button>Connect demo</button></form>
+<canvas id="road" width="960" height="540" aria-label="Synthetic driving view"></canvas>
+<div class="readouts"><span id="status" role="status">Connecting…</span><span id="speed">0 km/h</span><span id="control">Brakes applied</span></div>
+<p class="hint">Keep this tab open. In the dashboard, select “Demo vehicle”, connect, and start the stream. Use W/A/S/D while the dashboard has focus. This scene does not model real vehicle physics or predict future frames.</p>
+<p id="error" role="alert"></p></main><script type="module" src="/src/mockVehicle.js"></script></body></html>

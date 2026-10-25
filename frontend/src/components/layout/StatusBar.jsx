@@ -28,7 +28,7 @@ function ServiceBadge({ name, status }) {
 }
 
 export default function StatusBar() {
-  const { carlaStatus, webrtcStatus, yoloStatus, aiStatus, networkQuality, packetLoss } = useVehicleStore();
+  const { carlaStatus, webrtcStatus, yoloStatus, aiStatus, networkQuality, packetLoss, statsAvailable } = useVehicleStore();
   const netInfo = formatNetworkQuality(networkQuality);
 
   const bars = [
@@ -52,7 +52,7 @@ export default function StatusBar() {
 
       {/* Center label */}
       <div className="text-[10px] font-mono text-ghost-muted tracking-widest uppercase">
-        Phase 1 — Operator Dashboard
+        Received video · Prediction not enabled
       </div>
 
       {/* Network quality */}
@@ -71,7 +71,7 @@ export default function StatusBar() {
           {netInfo.label}
         </span>
         <span className="text-xs font-mono text-ghost-muted">
-          {packetLoss.toFixed(1)}% loss
+          {statsAvailable ? `${packetLoss.toFixed(1)}% video loss` : 'Video stats unavailable'}
         </span>
       </div>
     </footer>
