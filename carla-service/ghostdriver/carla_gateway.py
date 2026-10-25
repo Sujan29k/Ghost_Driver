@@ -312,15 +312,26 @@ class CarlaGateway:
 
         project_root = Path(__file__).resolve().parents[2]
         python = project_root / 'raft-env' / 'Scripts' / 'python.exe'
-        worker = Path(__file__).resolve().parent / 'raft_worker.py'
-        if not python.is_file() or not worker.is_file():
+        gateway_root = Path(__file__).resolve().parent
+        worker = gateway_root / 'raft_worker.py'
+        checkpoint = gateway_root / 'models' / 'raft-small.pth'
+        if not python.is_file() or not worker.is_file() or not checkpoint.is_file():
             print('[gateway] RAFT environment unavailable; Farneback fallback enabled')
             self.prediction_method = 'Farneback'
             return
 
         try:
             self.raft_process = subprocess.Popen(
-                [str(python), str(worker), '--host', '127.0.0.1', '--port', '5002'],
+                [
+                    str(python),
+                    str(worker),
+                    '--host',
+                    '127.0.0.1',
+                    '--port',
+                    '5002',
+                    '--checkpoint',
+                    str(checkpoint),
+                ],
                 cwd=str(project_root),
                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
             )

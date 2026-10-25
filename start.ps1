@@ -10,7 +10,7 @@ $Frontend = Join-Path $Root 'frontend'
 $Gateway = Join-Path $Root 'carla-service\ghostdriver'
 $GatewayPython = Join-Path $Gateway '.venv\Scripts\python.exe'
 $RaftPython = Join-Path $Root 'raft-env\Scripts\python.exe'
-$RaftCheckpoint = Join-Path $Gateway 'RAFT\models\raft-small.pth'
+$RaftCheckpoint = Join-Path $Gateway 'models\raft-small.pth'
 $CarlaRoot = if ($env:CARLA_ROOT) { $env:CARLA_ROOT } else { 'D:\WindowsNoEditor' }
 $CarlaExe = Join-Path $CarlaRoot 'CarlaUE4.exe'
 
