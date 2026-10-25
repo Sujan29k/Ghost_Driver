@@ -13,6 +13,7 @@ flowchart LR
 
 Start here:
 
+- **[Steps to run on both computers](docs/STEPS_TO_RUN.md)** — complete numbered instructions, commands for Mac/Windows/Linux, parallel tasks, and everyday startup/shutdown.
 - **[Your laptop setup](docs/LAPTOP_SETUP.md)** — tokens, TURN, local website/backend, Cloudflare Tunnel.
 - **[Your friend's GPU computer setup](docs/FRIEND_SETUP.md)** — matching CARLA client, Python bridge, startup.
 - **[Two-network verification and troubleshooting](docs/CONNECTION_TEST.md)** — first video, TURN-only test, recovery checks.
