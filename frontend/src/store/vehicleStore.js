@@ -32,7 +32,16 @@ const useVehicleStore = create((set, get) => ({
   carlaStatus: 'offline',   // offline | connected | error
   webrtcStatus: 'idle',     // idle | connecting | active | error
   yoloStatus: 'offline',
+  yoloDetections: [],
   aiStatus: 'offline',
+  predictionHorizonMs: 250,
+  injectedLatencyMs: 500,
+  cameraDelayMs: 250,
+  controlDelayMs: 250,
+  predictionMethod: 'RAFT-Small',
+  predictionMetrics: null,
+  inferenceMs: 0,
+  predictionHorizonMs: 500,
 
   // ── Active Keys ──────────────────────────────────────────────
   activeKeys: new Set(),
@@ -75,6 +84,21 @@ const useVehicleStore = create((set, get) => ({
   clearActiveKeys: () => set({ activeKeys: new Set() }),
 
   setCarlaStatus: (v) => set({ carlaStatus: v }),
+  setYoloStatus: (v) => set({ yoloStatus: v }),
+  setInjectedLatencyMs: (v) => set({ injectedLatencyMs: v }),
+  updatePerception: (data) =>
+    set({
+      yoloStatus: data.modelLoaded ? 'connected' : 'offline',
+      yoloDetections: data.detections ?? [],
+      aiStatus: data.predictionReady ? 'connected' : 'offline',
+      predictionHorizonMs: data.predictionHorizonMs ?? get().predictionHorizonMs,
+      injectedLatencyMs: data.latencyMs ?? get().injectedLatencyMs,
+      cameraDelayMs: data.cameraDelayMs ?? get().cameraDelayMs,
+      controlDelayMs: data.controlDelayMs ?? get().controlDelayMs,
+      predictionMethod: data.predictionMethod ?? get().predictionMethod,
+      predictionMetrics: data.predictionMetrics ?? get().predictionMetrics,
+      inferenceMs: data.inferenceMs ?? get().inferenceMs,
+    }),
   setWebRTCStatus: (v) => set({ webrtcStatus: v }),
 }));
 

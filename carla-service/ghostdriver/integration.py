@@ -1,263 +1,389 @@
+"""
+GhostDriver integration v2 - tele-operation latency demo (CARLA 0.9.15, Python 3.7).
+
+Three panels (stacked vertically):
+  LIVE       what the vehicle camera sees right now (YOLO + brake override run on this)
+  DELAYED    what the operator sees after the network delay (--latency ms)
+  PREDICTED  the delayed frame warped forward by the delay (operator-side compensation)
+
+Run examples:
+  python integration_v2.py --latency 200
+  python integration_v2.py --latency 500 --center-only
+  python integration_v2.py --latency 800 --damping 0.7 --max-disp 80
+
+Notes:
+  * Panels are stacked vertically so nothing gets cut off on any screen.
+  * Press Q in the preview window to quit.
+"""
+
+import argparse
+import collections
+import queue
+import random
+
 import carla
 import cv2
 import numpy as np
-import time
-import random
-import queue
 from ultralytics import YOLO
 
-# ── CONNECT TO CARLA ──────────────────────────────────────────
-client = carla.Client('localhost', 2000)
-client.set_timeout(30.0)
-world = client.get_world()
-print("✅ Connected:", world.get_map().name)
+FPS = 25
+FIXED_DELTA = 1.0 / FPS
+TARGET_CLASSES = ["car", "truck", "bus", "person", "bicycle", "motorcycle"]
 
-# ── TRAFFIC MANAGER SETUP ─────────────────────────────────────
-tm = client.get_trafficmanager(8000)
-tm.set_global_distance_to_leading_vehicle(1.5)
-tm.set_synchronous_mode(False)
-tm.global_percentage_speed_difference(-30)
+PANEL_W = 640
+PANEL_H = 300
 
-world.set_weather(carla.WeatherParameters.ClearNoon)
 
-# ── LOAD YOLO MODEL ──────────────────────────────────────────
-model = YOLO('yolov8n_coco128-5/weights/best.pt')
-print("✅ YOLOv8 loaded")
+def farneback_flow_to_prev(prev, cur):
+    g_cur  = cv2.cvtColor(cur,  cv2.COLOR_BGR2GRAY)
+    g_prev = cv2.cvtColor(prev, cv2.COLOR_BGR2GRAY)
+    return cv2.calcOpticalFlowFarneback(
+        g_cur, g_prev, None, pyr_scale=0.5, levels=3, winsize=15,
+        iterations=3, poly_n=5, poly_sigma=1.2, flags=0)
 
-bp_lib = world.get_blueprint_library()
-spawn_points = world.get_map().get_spawn_points()
-spectator = world.get_spectator()
 
-# ── SPAWN EGO VEHICLE ─────────────────────────────────────────
-vehicle_bp = bp_lib.filter('vehicle.tesla.model3')[0]
-vehicle = world.spawn_actor(vehicle_bp, spawn_points[0])
-vehicle.set_autopilot(True, 8000)
-tm.ignore_lights_percentage(vehicle, 100)
-tm.ignore_signs_percentage(vehicle, 100)
-tm.vehicle_percentage_speed_difference(vehicle, -50)
-print("✅ Ego vehicle spawned")
-time.sleep(2)
+def warp_forward(cur, flow, k, mode, damping, max_disp):
+    h, w = cur.shape[:2]
+    flow = flow.astype(np.float32)
+    if max_disp > 0:
+        mag  = np.sqrt((flow ** 2).sum(axis=-1, keepdims=True))
+        flow = flow * np.minimum(1.0, (max_disp / float(k)) / np.maximum(mag, 1e-6))
+    gx, gy = np.meshgrid(np.arange(w, dtype=np.float32),
+                         np.arange(h, dtype=np.float32))
+    if mode == "direct":
+        return cv2.remap(cur,
+                         gx + k * damping * flow[..., 0],
+                         gy + k * damping * flow[..., 1],
+                         cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    img = cur
+    mx, my = gx + damping * flow[..., 0], gy + damping * flow[..., 1]
+    for _ in range(k):
+        img = cv2.remap(img, mx, my, cv2.INTER_LINEAR,
+                        borderMode=cv2.BORDER_REPLICATE)
+    return img
 
-# ── SPAWN TRAFFIC VEHICLES ────────────────────────────────────
-traffic = []
-for i in range(5, 35):
-    try:
-        v_bp = random.choice(bp_lib.filter('vehicle.*'))
-        v = world.spawn_actor(v_bp, spawn_points[i])
-        v.set_autopilot(True, 8000)
-        tm.ignore_lights_percentage(v, 100)
-        tm.ignore_signs_percentage(v, 100)
-        tm.vehicle_percentage_speed_difference(v, -20)
-        traffic.append(v)
-    except:
-        pass
-print(f"✅ {len(traffic)} traffic vehicles spawned")
 
-# ── SPAWN BICYCLES ────────────────────────────────────────────
-bicycles = []
-bike_bps = (bp_lib.filter('vehicle.bh.crossbike') or
-            bp_lib.filter('vehicle.gazelle.omafiets') or
-            bp_lib.filter('vehicle.*bike*'))
+def psnr(a, b):
+    mse = np.mean((a.astype(np.float64) - b.astype(np.float64)) ** 2)
+    return 100.0 if mse == 0 else float(10 * np.log10(255.0 ** 2 / mse))
 
-for i in range(35, 45):
-    try:
-        if bike_bps:
-            b = world.spawn_actor(random.choice(bike_bps), spawn_points[i])
-            b.set_autopilot(True, 8000)
-            tm.ignore_lights_percentage(b, 100)
-            bicycles.append(b)
-    except:
-        pass
-print(f"✅ {len(bicycles)} bicycles spawned")
 
-# ── SPAWN PEDESTRIANS ─────────────────────────────────────────
-walkers = []
-walker_controllers = []
-walker_controller_bp = bp_lib.find('controller.ai.walker')
-walker_bps = bp_lib.filter('walker.pedestrian.*')
-
-for _ in range(50):
-    try:
-        walker_bp = random.choice(walker_bps)
-        loc = world.get_random_location_from_navigation()
-        if loc is None:
-            continue
-        walker = world.spawn_actor(walker_bp, carla.Transform(loc))
-        walkers.append(walker)
-        controller = world.spawn_actor(
-            walker_controller_bp, carla.Transform(), walker)
-        walker_controllers.append(controller)
-    except:
-        pass
-
-world.wait_for_tick()
-
-for controller in walker_controllers:
-    try:
-        controller.start()
-        controller.go_to_location(world.get_random_location_from_navigation())
-        controller.set_max_speed(random.uniform(1.0, 2.5))
-    except:
-        pass
-print(f"✅ {len(walkers)} pedestrians spawned")
-
-# ── CAMERA ────────────────────────────────────────────────────
-camera_bp = bp_lib.find('sensor.camera.rgb')
-camera_bp.set_attribute('image_size_x', '640')
-camera_bp.set_attribute('image_size_y', '480')
-camera_bp.set_attribute('fov', '90')
-camera = world.spawn_actor(
-    camera_bp,
-    carla.Transform(carla.Location(x=2.0, z=1.5)),
-    attach_to=vehicle
-)
-print("✅ Camera attached")
-
-# ── SHARED STATE ──────────────────────────────────────────────
-frame_queue = queue.Queue(maxsize=2)
-prev_gray = [None]
-brake_active = [False]
-
-def camera_callback(image):
-    array = np.frombuffer(image.raw_data, dtype=np.uint8)
-    array = array.reshape((image.height, image.width, 4))
-    bgr = array[:, :, :3].copy()
-    if not frame_queue.full():
-        frame_queue.put(bgr)
-
-camera.listen(camera_callback)
-
-print("\n🚗 GhostDriver Running — Press Q to quit\n")
-
-while True:
-    if frame_queue.empty():
-        time.sleep(0.01)
-        continue
-
-    frame = frame_queue.get()
-
-    # ── SPECTATOR FOLLOWS VEHICLE ──────────────────────────────
-    try:
-        t = vehicle.get_transform()
-        spectator.set_transform(carla.Transform(
-            t.location + carla.Location(z=50),
-            carla.Rotation(pitch=-90)
-        ))
-    except:
-        break
-
-    # ── OPTICAL FLOW ──────────────────────────────────────────
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    predicted_frame = frame.copy()
-
-    if prev_gray[0] is not None:
-        flow = cv2.calcOpticalFlowFarneback(
-            prev_gray[0], gray, None,
-            pyr_scale=0.5, levels=3, winsize=15,
-            iterations=3, poly_n=5, poly_sigma=1.2, flags=0
-        )
-        h, w = frame.shape[:2]
-        flow_map = np.zeros_like(flow)
-        flow_map[:, :, 0] = np.arange(w)
-        flow_map[:, :, 1] = np.arange(h)[:, None]
-        flow_map += flow
-        predicted_frame = cv2.remap(
-            frame,
-            flow_map[:, :, 0].astype(np.float32),
-            flow_map[:, :, 1].astype(np.float32),
-            cv2.INTER_LINEAR
-        )
-
-    prev_gray[0] = gray
-
-    # ── YOLO DETECTION ────────────────────────────────────────
-    results = model(frame, conf=0.4, verbose=False)
-    boxes = results[0].boxes
-    brake_active[0] = False
-    frame_area = frame.shape[0] * frame.shape[1]
-    detection_frame = frame.copy()
-
-    for box in boxes:
-        x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-        cls = int(box.cls)
-        conf = float(box.conf)
-        name = model.names[cls]
-        proximity = ((x2 - x1) * (y2 - y1)) / frame_area
-
-        if name not in ['car', 'truck', 'bus', 'person',
-                        'bicycle', 'motorcycle']:
-            continue
-
-        color = (0, 255, 0)
-        if proximity > 0.05:
-            color = (0, 0, 255)
-            brake_active[0] = True
-            try:
-                vehicle.set_autopilot(False, 8000)
-                vehicle.apply_control(
-                    carla.VehicleControl(brake=1.0, throttle=0.0)
-                )
-            except:
-                pass
-
-        cv2.rectangle(detection_frame, (x1, y1), (x2, y2), color, 2)
-        cv2.putText(detection_frame,
-                   f'{name} {conf:.2f} {proximity:.2f}',
-                   (x1, y1 - 5),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1)
-
-    # ── HUD ───────────────────────────────────────────────────
-    try:
-        v_vel = vehicle.get_velocity()
-        speed = 3.6 * (v_vel.x**2 + v_vel.y**2 + v_vel.z**2)**0.5
-    except:
-        break
-
-    cv2.putText(detection_frame, f'Speed: {speed:.1f} km/h',
-               (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-    cv2.putText(detection_frame, f'Objects: {len(boxes)}',
-               (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-
-    if brake_active[0]:
-        cv2.rectangle(detection_frame, (0, 0), (640, 480), (0, 0, 255), 8)
-        cv2.putText(detection_frame, '⚠ BRAKE OVERRIDE',
-                   (120, 240), cv2.FONT_HERSHEY_SIMPLEX,
-                   1.2, (0, 0, 255), 3)
-    else:
+def get_matching(q, frame, timeout=15.0):
+    import time
+    deadline = time.time() + timeout
+    while True:
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            raise RuntimeError("No camera image for frame %d" % frame)
         try:
-            vehicle.set_autopilot(True, 8000)
-            tm.ignore_lights_percentage(vehicle, 100)
-        except:
-            pass
+            item = q.get(timeout=remaining)
+        except queue.Empty:
+            raise RuntimeError("No camera image for frame %d" % frame)
+        if item.frame == frame:
+            return item
+        if item.frame > frame:
+            raise RuntimeError("Camera frame ahead of tick")
 
-    # ── LABELS ────────────────────────────────────────────────
-    cv2.putText(detection_frame, 'LIVE DETECTION + YOLO',
-               (10, 470), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1)
-    cv2.putText(predicted_frame, 'OPTICAL FLOW PREDICTION',
-               (10, 470), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 1)
 
-    # ── DISPLAY ───────────────────────────────────────────────
-    display = np.hstack([detection_frame, predicted_frame])
-    cv2.imshow('GhostDriver — Detection | Prediction', display)
+def add_label(img, text, color=(0, 255, 0), y=None):
+    if y is None:
+        y = img.shape[0] - 10
+    cv2.putText(img, text, (10, y),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 1, cv2.LINE_AA)
 
-    if cv2.waitKey(1) == ord('q'):
-        break
 
-# ── CLEANUP ───────────────────────────────────────────────────
-cv2.destroyAllWindows()
-try:
-    camera.stop()
-    camera.destroy()
-    vehicle.destroy()
-except:
-    pass
-for v in traffic + bicycles:
-    try: v.destroy()
-    except: pass
-for c in walker_controllers:
-    try: c.stop(); c.destroy()
-    except: pass
-for w in walkers:
-    try: w.destroy()
-    except: pass
-print("✅ Done")
+def make_panel(img, label_text, label_color):
+    """Resize to panel size and burn in the label at the bottom."""
+    p = cv2.resize(img, (PANEL_W, PANEL_H))
+    add_label(p, label_text, label_color)
+    return p
+
+
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument("--host",       default="127.0.0.1")
+    p.add_argument("--port",       type=int,   default=2000)
+    p.add_argument("--tm-port",    type=int,   default=8000)
+    p.add_argument("--weights",    default="yolov8n.pt")
+    p.add_argument("--latency",    type=int,   default=500,
+                   help="simulated network delay in ms (200 / 500 / 800)")
+    p.add_argument("--warp",       choices=["direct", "stepwise"], default="stepwise")
+    p.add_argument("--damping",    type=float, default=0.7)
+    p.add_argument("--max-disp",   type=float, default=80.0)
+    p.add_argument("--vehicles",   type=int,   default=30)
+    p.add_argument("--walkers",    type=int,   default=30)
+    p.add_argument("--threshold",  type=float, default=0.08,
+                   help="box area / frame area fraction to trigger brake")
+    p.add_argument("--center-only", action="store_true",
+                   help="only brake for objects centred in the middle 50%% of the image")
+    p.add_argument("--no-brake",   action="store_true")
+    p.add_argument("--panel-w",    type=int,   default=640,
+                   help="width of each panel in pixels")
+    p.add_argument("--panel-h",    type=int,   default=300,
+                   help="height of each panel in pixels")
+    p.add_argument("--seed",       type=int,   default=2026)
+    return p.parse_args()
+
+
+def main():
+    args = parse_args()
+    global PANEL_W, PANEL_H
+    PANEL_W = args.panel_w
+    PANEL_H = args.panel_h
+
+    random.seed(args.seed)
+    k = max(1, int(round(args.latency / (FIXED_DELTA * 1000.0))))
+    print("[INFO] latency %d ms = %d frames at %d FPS" % (args.latency, k, FPS))
+    print("[INFO] panel %dx%d  window %dx%d (vertical stack)"
+          % (PANEL_W, PANEL_H, PANEL_W, PANEL_H * 3))
+
+    client = carla.Client(args.host, args.port)
+    client.set_timeout(30.0)
+    world  = client.get_world()
+    tm     = client.get_trafficmanager(args.tm_port)
+    original_settings = world.get_settings()
+
+    actors, controllers = [], []
+    camera = ego = None
+
+    try:
+        settings = world.get_settings()
+        settings.synchronous_mode   = True
+        settings.fixed_delta_seconds = FIXED_DELTA
+        world.apply_settings(settings)
+        tm.set_synchronous_mode(True)
+        tm.set_random_device_seed(args.seed)
+        world.set_weather(carla.WeatherParameters.ClearNoon)
+
+        bp_lib       = world.get_blueprint_library()
+        spawn_points = world.get_map().get_spawn_points()
+        random.shuffle(spawn_points)
+
+        # ego vehicle
+        ego = world.try_spawn_actor(bp_lib.find("vehicle.tesla.model3"), spawn_points[0])
+        if ego is None:
+            raise RuntimeError("Could not spawn ego vehicle")
+        ego.set_autopilot(True, args.tm_port)
+        tm.ignore_lights_percentage(ego, 0)
+        tm.ignore_signs_percentage(ego, 0)
+        tm.vehicle_percentage_speed_difference(ego, -30)
+        actors.append(ego)
+
+        # traffic
+        vehicle_bps = [b for b in bp_lib.filter("vehicle.*")
+                       if int(b.get_attribute("number_of_wheels")) == 4]
+        n = 0
+        for sp in spawn_points[1:]:
+            if n >= args.vehicles:
+                break
+            v = world.try_spawn_actor(random.choice(vehicle_bps), sp)
+            if v is None:
+                continue
+            v.set_autopilot(True, args.tm_port)
+            tm.update_vehicle_lights(v, True)
+            actors.append(v)
+            n += 1
+        print("[INFO] traffic vehicles: %d" % n)
+
+        # walkers
+        walker_bps    = list(bp_lib.filter("walker.pedestrian.*"))
+        controller_bp = bp_lib.find("controller.ai.walker")
+        walkers = []
+        for _ in range(args.walkers):
+            loc = world.get_random_location_from_navigation()
+            if loc is None:
+                continue
+            bp = random.choice(walker_bps)
+            if bp.has_attribute("is_invincible"):
+                bp.set_attribute("is_invincible", "true")
+            w = world.try_spawn_actor(bp, carla.Transform(loc))
+            if w is None:
+                continue
+            c = world.try_spawn_actor(controller_bp, carla.Transform(), attach_to=w)
+            if c is None:
+                w.destroy()
+                continue
+            walkers.append(w)
+            controllers.append(c)
+        world.tick()
+        for c in controllers:
+            c.start()
+            tgt = world.get_random_location_from_navigation()
+            if tgt is not None:
+                c.go_to_location(tgt)
+            c.set_max_speed(random.uniform(1.0, 1.8))
+        actors.extend(walkers)
+        print("[INFO] pedestrians: %d" % len(walkers))
+
+        # camera
+        cam_bp = bp_lib.find("sensor.camera.rgb")
+        cam_bp.set_attribute("image_size_x", "640")
+        cam_bp.set_attribute("image_size_y", "480")
+        cam_bp.set_attribute("fov", "90")
+        camera = world.spawn_actor(
+            cam_bp, carla.Transform(carla.Location(x=2.0, z=1.5)), attach_to=ego)
+        cam_q = queue.Queue()
+        camera.listen(cam_q.put)
+
+        model = YOLO(args.weights)
+        print("[INFO] YOLO weights: %s  |  center-only: %s  |  threshold: %.2f"
+              % (args.weights, args.center_only, args.threshold))
+
+        # resizable window — vertical stack
+        cv2.namedWindow("GhostDriver v2", cv2.WINDOW_NORMAL)
+        cv2.resizeWindow("GhostDriver v2", PANEL_W, PANEL_H * 3)
+
+        buf          = collections.deque(maxlen=k + 2)
+        brake_hold   = 0
+        clear_count  = 0
+        autopilot_on = True
+        psnr_delayed, psnr_pred = [], []
+
+        print("[INFO] running — press Q to quit")
+
+        while True:
+            frame_id = world.tick()
+            img      = get_matching(cam_q, frame_id)
+            arr      = np.frombuffer(img.raw_data, dtype=np.uint8).reshape(
+                           (img.height, img.width, 4))
+            live = arr[:, :, :3].copy()
+            buf.append(live)
+            h, w = live.shape[:2]
+
+            # ---------- YOLO on live frame (vehicle side) ----------
+            live_view = live.copy()
+            brake_now = False
+            results   = model(live, conf=0.4, verbose=False)
+
+            for box in results[0].boxes:
+                name = model.names[int(box.cls)]
+                if name not in TARGET_CLASSES:
+                    continue
+                x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].tolist()]
+                prox = ((x2 - x1) * (y2 - y1)) / float(w * h)
+                cx   = 0.5 * (x1 + x2) / w
+                in_lane = (0.25 <= cx <= 0.75) if args.center_only else True
+                danger  = prox > args.threshold and in_lane
+                color   = (0, 0, 255) if danger else (0, 255, 0)
+                if danger:
+                    brake_now = True
+                cv2.rectangle(live_view, (x1, y1), (x2, y2), color, 2)
+                cv2.putText(live_view,
+                            "%s %.2f" % (name, prox),
+                            (x1, max(12, y1 - 5)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1)
+
+            # ---------- brake override ----------
+            if not args.no_brake:
+                if brake_now:
+                    brake_hold  = 10
+                    clear_count = 0
+                    if autopilot_on:
+                        ego.set_autopilot(False, args.tm_port)
+                        autopilot_on = False
+                elif brake_hold > 0:
+                    brake_hold -= 1
+                else:
+                    clear_count += 1
+                if not autopilot_on:
+                    if brake_hold > 0 or brake_now:
+                        ego.apply_control(
+                            carla.VehicleControl(brake=1.0, throttle=0.0))
+                    elif clear_count >= 10:
+                        ego.set_autopilot(True, args.tm_port)
+                        autopilot_on = True
+
+            # speed label on live panel
+            try:
+                v     = ego.get_velocity()
+                speed = 3.6 * float(np.sqrt(v.x**2 + v.y**2 + v.z**2))
+            except Exception:
+                speed = float("nan")
+            add_label(live_view,
+                      "LIVE (vehicle side) | %.0f km/h" % speed,
+                      color=(255, 255, 255), y=25)
+
+            if brake_now and not args.no_brake:
+                cv2.rectangle(live_view, (0, 0), (w - 1, h - 1), (0, 0, 255), 6)
+                cv2.putText(live_view, "BRAKE OVERRIDE", (140, 240),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 3,
+                            cv2.LINE_AA)
+
+            # ---------- delayed + predicted (operator side) ----------
+            if len(buf) < k + 2:
+                waiting = np.zeros_like(live)
+                add_label(waiting,
+                          "filling delay buffer %d/%d" % (len(buf), k + 2),
+                          y=PANEL_H // 2)
+                combined = np.vstack([
+                    make_panel(live_view, "LIVE | YOLO + brake override", (255, 255, 255)),
+                    make_panel(waiting,   "DELAYED — buffering ...",       (0, 200, 255)),
+                    make_panel(waiting,   "PREDICTED — buffering ...",     (0, 255, 255)),
+                ])
+                cv2.imshow("GhostDriver v2", combined)
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
+                continue
+
+            delayed_prev, delayed = buf[0], buf[1]
+            flow      = farneback_flow_to_prev(delayed_prev, delayed)
+            predicted = warp_forward(delayed, flow, k,
+                                     args.warp, args.damping, args.max_disp)
+
+            psnr_delayed.append(psnr(delayed, live))
+            psnr_pred.append(psnr(predicted, live))
+            recent_d = np.mean(psnr_delayed[-50:])
+            recent_p = np.mean(psnr_pred[-50:])
+
+            combined = np.vstack([
+                make_panel(live_view,
+                           "LIVE | YOLO + brake | %.0f km/h" % speed,
+                           (255, 255, 255)),
+                make_panel(delayed.copy(),
+                           "DELAYED %d ms (operator sees)  PSNR %.1f dB"
+                           % (args.latency, recent_d),
+                           (0, 200, 255)),
+                make_panel(predicted.copy(),
+                           "PREDICTED +%d ms  PSNR %.1f dB"
+                           % (args.latency, recent_p),
+                           (0, 255, 255)),
+            ])
+
+            cv2.imshow("GhostDriver v2", combined)
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
+
+        if psnr_pred:
+            print("[RESULT] mean PSNR  delayed %.2f dB  |  predicted %.2f dB"
+                  % (np.mean(psnr_delayed), np.mean(psnr_pred)))
+
+    finally:
+        print("[INFO] cleaning up ...")
+        cv2.destroyAllWindows()
+        if camera is not None:
+            try:
+                camera.stop()
+                camera.destroy()
+            except Exception:
+                pass
+        for c in controllers:
+            try:
+                c.stop()
+                c.destroy()
+            except Exception:
+                pass
+        for a in actors:
+            try:
+                a.destroy()
+            except Exception:
+                pass
+        try:
+            tm.set_synchronous_mode(False)
+            world.apply_settings(original_settings)
+        except Exception as exc:
+            print("[WARN] could not restore settings: %s" % exc)
+        print("[INFO] done")
+
+
+if __name__ == "__main__":
+    main()

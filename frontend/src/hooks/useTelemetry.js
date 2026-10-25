@@ -10,6 +10,7 @@ const PING_INTERVAL_MS = 2000;
 
 export function useTelemetry() {
   const updateTelemetry = useVehicleStore((s) => s.updateTelemetry);
+  const updatePerception = useVehicleStore((s) => s.updatePerception);
 
   useEffect(() => {
     // Subscribe to live telemetry
@@ -28,9 +29,17 @@ export function useTelemetry() {
       updateTelemetry({ latency });
     });
 
+    socket.on('perception:update', updatePerception);
+
+    socket.on('latency:configure', ({ latencyMs }) => {
+      useVehicleStore.getState().setInjectedLatencyMs(latencyMs);
+    });
+
     return () => {
       socket.off('telemetry:update');
       socket.off('pong:measure');
+      socket.off('perception:update');
+      socket.off('latency:configure');
       clearInterval(pingTimer);
     };
   }, []);

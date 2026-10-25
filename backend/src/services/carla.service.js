@@ -7,6 +7,7 @@
  */
 
 let _connected = false;
+let _lastBridgeTelemetryAt = 0;
 let _simInterval = null;
 let _onTelemetry = null; // callback (data) => void
 
@@ -39,7 +40,7 @@ function disconnect() {
 }
 
 function isConnected() {
-  return _connected;
+  return _connected || Date.now() - _lastBridgeTelemetryAt < 3000;
 }
 
 function applyControl({ throttle = 0, brake = 0, steer = 0 }) {
@@ -65,6 +66,33 @@ function emergencyStop() {
 
 function onTelemetry(cb) {
   _onTelemetry = cb;
+}
+
+function ingestTelemetry(data) {
+  if (!data || typeof data !== 'object') return;
+  _lastBridgeTelemetryAt = data.carlaConnected === false ? 0 : Date.now();
+
+  _state = {
+    ..._state,
+    ...data,
+    speed: data.speed ?? _state.speed,
+    throttle: data.throttle ?? _state.throttle,
+    brake: data.brake ?? _state.brake,
+    steer: data.steer ?? _state.steer,
+    gear: data.gear ?? _state.gear,
+    heading: data.heading ?? _state.heading,
+    location: data.location ?? _state.location,
+    carlaConnected: data.carlaConnected ?? true,
+    timestamp: data.timestamp ?? Date.now(),
+  };
+
+  if (_onTelemetry) {
+    _onTelemetry({
+      ..._state,
+      timestamp: _state.timestamp,
+      carlaConnected: true,
+    });
+  }
 }
 
 function _startTelemetrySim() {
@@ -96,4 +124,4 @@ function _stopTelemetrySim() {
   }
 }
 
-module.exports = { connect, disconnect, isConnected, applyControl, emergencyStop, onTelemetry };
+module.exports = { connect, disconnect, isConnected, applyControl, emergencyStop, onTelemetry, ingestTelemetry };

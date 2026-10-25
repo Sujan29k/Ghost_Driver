@@ -45,7 +45,7 @@ export default function StatusBar() {
       {/* Service statuses */}
       <div className="flex items-center gap-2">
         <ServiceBadge name="CARLA"    status={carlaStatus} />
-        <ServiceBadge name="WebRTC"   status={webrtcStatus} />
+        <ServiceBadge name="Video"    status={webrtcStatus} />
         <ServiceBadge name="YOLO"     status={yoloStatus} />
         <ServiceBadge name="AI Pred." status={aiStatus} />
       </div>

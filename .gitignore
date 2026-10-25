@@ -1,6 +1,7 @@
 # Dependencies
 node_modules/
 **/node_modules/
+/raft-env/
 
 # Build outputs
 /dist/
@@ -36,6 +37,18 @@ __pycache__/
 .venv/
 venv/
 env/
+
+# Local configuration and model/data artifacts
+/backend/.env
+/research_paper/*.pdf
+/carla-service/ghostdriver/dataset/
+/carla-service/ghostdriver/dataset_v*/
+/carla-service/ghostdriver/eval_*/
+/carla-service/ghostdriver/results/
+/carla-service/ghostdriver/inspect_*.png
+/carla-service/ghostdriver/yolov8n_coco128-5/
+/carla-service/ghostdriver/RAFT/models/*.pth
+/carla-service/ghostdriver/*.pt
 
 # OS and editor files
 .DS_Store

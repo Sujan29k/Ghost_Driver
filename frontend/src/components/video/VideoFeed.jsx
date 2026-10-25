@@ -3,26 +3,86 @@
  * Phase 1: shows a waiting state with futuristic overlay.
  * Phase 2: video element receives WebRTC srcObject from CARLA.
  */
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
+import { socket } from '../../services/socket';
 import useVehicleStore from '../../store/vehicleStore';
 import useWebRTC from '../../hooks/useWebRTC';
 import { formatHeading } from '../../utils/formatters';
 
 export default function VideoFeed() {
   const videoRef = useRef(null);
-  const { streamActive, vehicleConnected, speed, heading, fps, networkQuality } = useVehicleStore();
+  const [previewMode, setPreviewMode] = useState('live');
+  const {
+    streamActive,
+    vehicleConnected,
+    connectedVehicleId,
+    availableVehicle,
+    speed,
+    heading,
+    fps,
+    networkQuality,
+    yoloStatus,
+    yoloDetections,
+    aiStatus,
+    predictionHorizonMs,
+    injectedLatencyMs,
+    predictionMethod,
+    predictionMetrics,
+    inferenceMs,
+    cameraDelayMs,
+    controlDelayMs,
+    setStreamActive,
+    setWebRTCStatus,
+    setInjectedLatencyMs,
+  } = useVehicleStore();
+  const isCarlaGateway = availableVehicle?.name === 'CARLA-Gateway';
+  const detectionSummary = yoloDetections
+    .slice(0, 2)
+    .map((detection) => detection.class)
+    .join(', ');
+  const framePath = previewMode === 'predicted'
+    ? 'predicted'
+    : previewMode === 'delayed'
+      ? 'delayed'
+      : 'stream';
+  const changeLatency = (latencyMs) => {
+    setInjectedLatencyMs(latencyMs);
+    socket.emit('latency:configure', { latencyMs });
+  };
+  const formatMetric = (value) => (
+    value == null ? 'N/A' : Number.isFinite(value) ? value.toFixed(1) : 'MAX'
+  );
   const { startStream, stopStream } = useWebRTC(videoRef);
+  const handleStartStream = () => {
+    if (isCarlaGateway) {
+      setStreamActive(true);
+      return;
+    }
+    startStream(connectedVehicleId);
+  };
 
   return (
     <div className="ghost-panel relative flex-1 overflow-hidden scanlines">
-      {/* Video element (hidden when no stream) */}
-      <video
-        ref={videoRef}
-        autoPlay
-        muted
-        playsInline
-        className={`absolute inset-0 w-full h-full object-cover ${streamActive ? 'opacity-100' : 'opacity-0'}`}
-      />
+      {isCarlaGateway ? (
+        <img
+          src={streamActive ? `http://localhost:5001/${framePath}.mjpg` : undefined}
+          alt={`${previewMode} CARLA camera`}
+          className={`absolute inset-0 w-full h-full object-contain ${streamActive ? 'opacity-100' : 'opacity-0'}`}
+          onLoad={() => setWebRTCStatus('active')}
+          onError={() => {
+            setStreamActive(false);
+            setWebRTCStatus('error');
+          }}
+        />
+      ) : (
+        <video
+          ref={videoRef}
+          autoPlay
+          muted
+          playsInline
+          className={`absolute inset-0 w-full h-full object-cover ${streamActive ? 'opacity-100' : 'opacity-0'}`}
+        />
+      )}
 
       {/* No-stream overlay */}
       {!streamActive && (
@@ -52,14 +112,16 @@ export default function VideoFeed() {
               {vehicleConnected ? 'Vehicle Connected — Ready to Stream' : 'Waiting for Vehicle Stream...'}
             </p>
             <p className="text-ghost-border text-[10px] font-mono mt-1">
-              WebRTC · CARLA Camera · Phase 2
+              {isCarlaGateway
+                ? `CARLA RGB · ${predictionMethod} +${predictionHorizonMs}ms`
+                : 'WebRTC · CARLA Camera'}
             </p>
           </div>
 
           {vehicleConnected && (
             <button
               className="btn-ghost btn-accent text-xs"
-              onClick={startStream}
+              onClick={handleStartStream}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                 <polygon points="5 3 19 12 5 21 5 3" />
@@ -77,7 +139,7 @@ export default function VideoFeed() {
           <div className="absolute top-3 left-3 flex items-center gap-2 px-2.5 py-1.5 rounded bg-black/60 backdrop-blur-sm border border-ghost-border">
             <div className={`w-2 h-2 rounded-full ${streamActive ? 'bg-ghost-success animate-pulse' : 'bg-ghost-warning animate-pulse'}`} />
             <span className="text-[11px] font-mono tracking-widest text-ghost-text">
-              {streamActive ? 'LIVE' : 'STANDBY'}
+              {streamActive ? previewMode.toUpperCase() : 'STANDBY'}
             </span>
           </div>
 
@@ -88,6 +150,75 @@ export default function VideoFeed() {
               {Math.round(fps)}
             </span>
           </div>
+
+          {isCarlaGateway && streamActive && (
+            <div className="absolute top-12 left-1/2 z-10 flex -translate-x-1/2 rounded border border-ghost-border bg-black/80 p-0.5 font-mono text-[10px]">
+              <button
+                type="button"
+                aria-pressed={previewMode === 'live'}
+                className={`px-2 py-1 ${previewMode === 'live' ? 'text-ghost-accent' : 'text-ghost-muted'}`}
+                onClick={() => setPreviewMode('live')}
+              >
+                LIVE
+              </button>
+              <button
+                type="button"
+                aria-pressed={previewMode === 'delayed'}
+                className={`px-2 py-1 ${previewMode === 'delayed' ? 'text-ghost-accent' : 'text-ghost-muted'}`}
+                onClick={() => setPreviewMode('delayed')}
+              >
+                DELAYED
+              </button>
+              <button
+                type="button"
+                aria-pressed={previewMode === 'predicted'}
+                disabled={aiStatus !== 'connected'}
+                className={`px-2 py-1 disabled:opacity-40 ${previewMode === 'predicted' ? 'text-ghost-accent' : 'text-ghost-muted'}`}
+                onClick={() => setPreviewMode('predicted')}
+                title={aiStatus === 'connected' ? `Show ${predictionMethod} prediction` : 'Waiting for the first prediction frame'}
+              >
+                PREDICTED
+              </button>
+            </div>
+          )}
+
+          {isCarlaGateway && streamActive && (
+            <div className="absolute top-24 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded border border-ghost-border bg-black/80 p-1 font-mono text-[10px]">
+              <span className="px-1 text-ghost-muted">RTT</span>
+              {[0, 200, 500, 800].map((latencyMs) => (
+                <button
+                  key={latencyMs}
+                  type="button"
+                  aria-pressed={injectedLatencyMs === latencyMs}
+                  className={`px-1.5 py-1 ${injectedLatencyMs === latencyMs ? 'text-ghost-accent' : 'text-ghost-muted'}`}
+                  onClick={() => changeLatency(latencyMs)}
+                  title={`Set round-trip latency to ${latencyMs} ms`}
+                >
+                  {latencyMs}
+                </button>
+              ))}
+              <span className="px-1 text-ghost-muted">ms</span>
+              <span className="px-1 text-ghost-muted">
+                VIDEO {cameraDelayMs} / CTRL {controlDelayMs}
+              </span>
+            </div>
+          )}
+
+          {isCarlaGateway && (
+            <div className="pointer-events-none absolute top-12 left-3 z-10 px-2.5 py-1 rounded bg-black/70 border border-ghost-border text-[10px] font-mono">
+              <span className="text-ghost-success">YOLO</span>
+              <span className="text-ghost-text"> {yoloStatus === 'connected' ? `${yoloDetections.length} OBJECTS` : 'OFFLINE'}</span>
+              {detectionSummary && <span className="text-ghost-muted"> · {detectionSummary}</span>}
+            </div>
+          )}
+
+          {isCarlaGateway && streamActive && predictionMetrics && (
+            <div className="pointer-events-none absolute bottom-12 right-3 z-10 rounded border border-ghost-border bg-black/80 px-2 py-1 font-mono text-[9px] text-ghost-muted">
+              <div>{predictionMethod} · {Math.round(inferenceMs)}ms</div>
+              <div>PSNR D/F/R {formatMetric(predictionMetrics.delayedPsnr)} / {formatMetric(predictionMetrics.farnebackPsnr)} / {formatMetric(predictionMetrics.raftPsnr)} dB</div>
+              <div>SSIM D/F/R {formatMetric(predictionMetrics.delayedSsim)} / {formatMetric(predictionMetrics.farnebackSsim)} / {formatMetric(predictionMetrics.raftSsim)}</div>
+            </div>
+          )}
 
           {/* Bottom-left: Speed */}
           <div className="absolute bottom-3 left-3 flex items-end gap-1.5 px-3 py-2 rounded bg-black/70 backdrop-blur-sm border border-ghost-border">

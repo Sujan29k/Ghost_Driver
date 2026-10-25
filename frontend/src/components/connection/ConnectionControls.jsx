@@ -27,12 +27,16 @@ export default function ConnectionControls() {
   // Instead, emit stream:request directly here
   const handleStartStream = () => {
     if (!connectedVehicleId) return;
+    if (availableVehicle?.name === 'CARLA-Gateway') {
+      setStreamActive(true);
+      return;
+    }
     setWebRTCStatus('connecting');
     socket.emit('stream:request', { vehicleId: connectedVehicleId });
   };
 
   const handleStopStream = () => {
-    if (connectedVehicleId) {
+    if (connectedVehicleId && availableVehicle?.name !== 'CARLA-Gateway') {
       socket.emit('stream:stop', { targetId: connectedVehicleId });
     }
     setStreamActive(false);

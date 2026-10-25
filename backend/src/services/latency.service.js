@@ -6,6 +6,22 @@
 
 const measurements = [];
 const MAX_MEASUREMENTS = 100;
+const INJECTED_LATENCIES = [0, 200, 500, 800];
+let injectedLatencyMs = 500;
+
+function setInjectedLatency(ms) {
+  if (!Number.isInteger(ms) || !INJECTED_LATENCIES.includes(ms)) return false;
+  injectedLatencyMs = ms;
+  return true;
+}
+
+function getInjectedLatency() {
+  return injectedLatencyMs;
+}
+
+function getInjectedLatencyOptions() {
+  return INJECTED_LATENCIES;
+}
 
 /**
  * Record a latency measurement (ms).
@@ -48,4 +64,12 @@ function getNetworkQuality() {
   return 'critical';
 }
 
-module.exports = { recordLatency, getAverageLatency, getPacketLoss, getNetworkQuality };
+module.exports = {
+  recordLatency,
+  getAverageLatency,
+  getPacketLoss,
+  getNetworkQuality,
+  setInjectedLatency,
+  getInjectedLatency,
+  getInjectedLatencyOptions,
+};

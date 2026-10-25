@@ -5,7 +5,7 @@
 
 const carlaService = require('../services/carla.service');
 const latencyService = require('../services/latency.service');
-const { ingestTelemetry } = require('../controllers/telemetry.controller');
+const { ingestTelemetry, ingestPerception } = require('../controllers/telemetry.controller');
 
 let _io = null;
 let _fps = 0;
@@ -42,6 +42,42 @@ function registerHandlers(socket) {
     const latency = Date.now() - sentAt;
     latencyService.recordLatency(latency);
     socket.emit('pong:measure', { sentAt, receivedAt: Date.now(), latency });
+  });
+
+  // Real CARLA / Python bridge telemetry
+  socket.on('vehicle:telemetry', (data) => {
+    if (!data || typeof data !== 'object') return;
+    const normalized = {
+      ...data,
+      speed: data.speed ?? 0,
+      throttle: data.throttle ?? 0,
+      brake: data.brake ?? 0,
+      steer: data.steer ?? 0,
+      gear: data.gear ?? 'P',
+      heading: data.heading ?? 0,
+      carlaConnected: data.carlaConnected ?? true,
+      timestamp: data.timestamp ?? Date.now(),
+    };
+    carlaService.ingestTelemetry(normalized);
+  });
+
+  socket.on('vehicle:perception', (data) => {
+    if (!data || typeof data !== 'object') return;
+    const perception = {
+      modelLoaded: Boolean(data.modelLoaded),
+      detections: Array.isArray(data.detections) ? data.detections : [],
+      inferenceMs: data.inferenceMs ?? null,
+      predictionReady: Boolean(data.predictionReady),
+      predictionHorizonMs: data.predictionHorizonMs ?? null,
+      latencyMs: data.latencyMs ?? null,
+      cameraDelayMs: data.cameraDelayMs ?? null,
+      controlDelayMs: data.controlDelayMs ?? null,
+      predictionMethod: data.predictionMethod ?? 'Farneback',
+      predictionMetrics: data.predictionMetrics ?? null,
+      timestamp: data.timestamp ?? Date.now(),
+    };
+    ingestPerception(perception);
+    if (_io) _io.emit('perception:update', perception);
   });
 
   // Request a snapshot of the latest telemetry on connect

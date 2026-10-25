@@ -20,6 +20,11 @@ const { v4: uuidv4 } = require('uuid');
 const vehicles = new Map();
 
 function registerHandlers(socket, io) {
+  // Let newly connected dashboards discover vehicles that joined earlier.
+  for (const vehicle of vehicles.values()) {
+    socket.emit('vehicle:available', vehicle);
+  }
+
   // ── VEHICLE SIDE ────────────────────────────────────────────────────────
 
   /** Vehicle simulator page announces itself */

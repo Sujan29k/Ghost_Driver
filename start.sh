@@ -1,48 +1,20 @@
-#!/bin/bash
-# start.sh — starts Ghost Driver backend + frontend in the background
-# Usage: bash start.sh
+#!/usr/bin/env bash
+set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WINDOWS_SCRIPT="$ROOT_DIR/start.ps1"
 
-echo "🔴  Stopping old processes on ports 4000 and 5173..."
-lsof -ti:4000 | xargs kill -9 2>/dev/null
-lsof -ti:5173 | xargs kill -9 2>/dev/null
-sleep 1
-
-echo "🚀  Starting backend on port 4000..."
-cd "$ROOT/backend"
-node src/server.js > "$ROOT/backend/server.log" 2>&1 &
-BACKEND_PID=$!
-echo "   Backend PID: $BACKEND_PID"
-
-sleep 1
-
-# Verify backend is up
-if curl -sf http://localhost:4000/api/health > /dev/null 2>&1; then
-  echo "   ✅ Backend is healthy"
-else
-  echo "   ⚠️  Backend may still be starting (check backend/server.log)"
+if ! command -v powershell.exe >/dev/null 2>&1; then
+  echo "This launcher starts the Windows CARLA simulator and requires Windows PowerShell."
+  echo "Run start.ps1 on the CARLA Windows machine, or use Git Bash with PowerShell available."
+  exit 1
 fi
 
-echo ""
-echo "🚀  Starting frontend on port 5173..."
-cd "$ROOT/frontend"
-npm run dev > "$ROOT/frontend/dev.log" 2>&1 &
-FRONTEND_PID=$!
-echo "   Frontend PID: $FRONTEND_PID"
+if command -v cygpath >/dev/null 2>&1; then
+  WINDOWS_SCRIPT="$(cygpath -w "$WINDOWS_SCRIPT")"
+elif command -v wslpath >/dev/null 2>&1; then
+  WINDOWS_SCRIPT="$(wslpath -w "$WINDOWS_SCRIPT")"
+fi
 
-sleep 2
-
-echo ""
-echo "✅  Ghost Driver is running!"
-echo "   Dashboard:       http://localhost:5173"
-echo "   Vehicle Sim:     http://localhost:5173/vehicle-sim.html"
-echo "   Backend Health:  http://localhost:4000/api/health"
-echo ""
-echo "   Backend log:  $ROOT/backend/server.log"
-echo "   Frontend log: $ROOT/frontend/dev.log"
-echo ""
-echo "   To stop: lsof -ti:4000 | xargs kill && lsof -ti:5173 | xargs kill"
-
-# Keep script running so PIDs stay alive
-wait $BACKEND_PID
+echo "Starting Ghost Driver, CARLA, the Python gateway, and RAFT..."
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$WINDOWS_SCRIPT" "$@"

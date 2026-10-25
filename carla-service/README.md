@@ -2,6 +2,19 @@
 
 This folder is the designated home for the Python scripts that bridge the CARLA Simulator and YOLO with the Ghost Driver Node.js Backend.
 
+## Start the full stack on Windows
+
+From the project root, run `.\start.ps1` in PowerShell or `bash start.sh` in Git Bash. The launcher starts or reuses the Node backend and dashboard, starts CARLA if its RPC port is not already available, then starts the Python gateway. The gateway starts the RAFT worker from `raft-env`.
+
+The gateway uses `carla-service\ghostdriver\.venv` (Python 3.7 for the CARLA 0.9.15 API); RAFT uses the project-level `raft-env`. The default CARLA installation path is `D:\WindowsNoEditor`. If `CarlaUE4.exe` is elsewhere, set `CARLA_ROOT` to its containing folder before starting:
+
+```powershell
+$env:CARLA_ROOT = 'D:\path\to\WindowsNoEditor'
+.\start.ps1
+```
+
+Use `.\start.ps1 -CheckOnly` to verify the runtime dependencies without starting services. The launcher opens separate terminals for the backend, dashboard, and gateway; keep those windows open while using the app.
+
 ## Architecture Integration Guide
 
 To connect the Python scripts to the Operator Dashboard, your Python app needs to connect to the Node.js signaling server using `python-socketio`.

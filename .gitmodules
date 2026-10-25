@@ -1,0 +1,3 @@
+[submodule "carla-service/ghostdriver/RAFT"]
+	path = carla-service/ghostdriver/RAFT
+	url = https://github.com/princeton-vl/RAFT.git
