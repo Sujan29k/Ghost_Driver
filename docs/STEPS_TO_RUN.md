@@ -1,5 +1,7 @@
 # Steps to run GhostDriver on both computers
 
+For the integrated traffic, YOLO and RAFT setup, start with [AI_TRAFFIC.md](AI_TRAFFIC.md). Use Python 3.10+; for CARLA 0.9.15 on Windows x64, use Python 3.10 and the matching `carla==0.9.15` client. The older Python 3.7 environment is incompatible with this bridge.
+
 Your Mac runs the website, backend, and tunnel. Your friend's GPU computer runs CARLA and the Python bridge. You can prepare both computers simultaneously, then connect them using your tunnel URL and sender token.
 
 ## Setup status recorded on October 25, 2026
@@ -63,6 +65,7 @@ Dependencies were already present. If you later use a fresh project copy or depe
 
 ```bash
 npm run setup
+npm run doctor
 ```
 
 Open your existing configuration:
@@ -164,7 +167,7 @@ If the default `py` interpreter is compatible:
 py -m venv carla-service/.venv
 .\carla-service\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install -r carla-service/requirements.txt
+python -m pip install -r carla-service/requirements-ai.txt
 ```
 
 If the wheel specifically requires an installed Python 3.10, the environment creation command would instead be:
@@ -179,7 +182,7 @@ If PowerShell blocks activation, activation is optional. Use the environment's i
 
 ```powershell
 .\carla-service\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\carla-service\.venv\Scripts\python.exe -m pip install -r carla-service/requirements.txt
+.\carla-service\.venv\Scripts\python.exe -m pip install -r carla-service/requirements-ai.txt
 ```
 
 In that case, replace `python` in every subsequent Windows command with:
@@ -196,7 +199,7 @@ If `python3` is compatible:
 python3 -m venv carla-service/.venv
 source carla-service/.venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -r carla-service/requirements.txt
+python -m pip install -r carla-service/requirements-ai.txt
 ```
 
 If another installed interpreter is required, substitute it in the first command—for example, `python3.10`.

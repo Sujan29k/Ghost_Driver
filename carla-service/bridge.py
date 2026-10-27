@@ -1,4 +1,4 @@
-"""CARLA RGB/control provider for GhostDriver; no YOLO or prediction dependency."""
+"""CARLA traffic, YOLO camera stream and remote controls for GhostDriver."""
 import argparse
 import asyncio
 import logging
@@ -10,6 +10,9 @@ from urllib.parse import urlparse
 import threading
 import time
 from control_state import ControlState
+from perception import DEFAULT_WEIGHTS
+from prediction import DEFAULT_RAFT_WEIGHTS
+from traffic import TrafficScene
 
 log = logging.getLogger('ghostdriver')
 
@@ -17,7 +20,10 @@ log = logging.getLogger('ghostdriver')
 async def run(args):
     # Keep --help usable before the optional dependencies are installed.
     import carla
+    import aiohttp
+    import certifi
     import numpy as np
+    import ssl
     import socketio
     from aiortc import RTCPeerConnection, RTCSessionDescription, RTCConfiguration, RTCIceServer, VideoStreamTrack
     from aiortc.sdp import candidate_from_sdp
@@ -25,15 +31,26 @@ async def run(args):
 
     vehicle = camera = None
     worker = None
+    perception_worker = None
+    scene = None
+    perception = None
+    ai_enabled = getattr(args, 'ai', 'off') == 'yolo'
     quit_event = threading.Event()
     controls = ControlState()
     image_lock = threading.Lock()
-    latest = {'image': None, 'image_at': 0, 'telemetry': None, 'telemetry_at': 0, 'error': None}
+    latest = {'image': None, 'image_at': 0, 'output': None, 'output_at': 0,
+              'output_frame': None, 'ai': {'enabled': False},
+              'telemetry': None, 'telemetry_at': 0, 'error': None, 'phase': 'starting'}
     ice_servers = []
     status_task = None
     setup_task = None
     world = None
-    sio = socketio.AsyncClient(reconnection=True)
+    # Some Python installations have no populated default CA file. Add the
+    # maintained CA bundle while retaining OS/custom trust and TLS verification.
+    tls = ssl.create_default_context()
+    tls.load_verify_locations(cafile=certifi.where())
+    http_session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=tls))
+    sio = socketio.AsyncClient(reconnection=True, http_session=http_session)
     pc = None
     track = None
     session_id = None
@@ -41,18 +58,25 @@ async def run(args):
     rtc_lock = asyncio.Lock()
     registration_lock = asyncio.Lock()
 
+    def set_phase(phase):
+        with image_lock:
+            latest['phase'] = phase
+
     class CameraTrack(VideoStreamTrack):
         async def recv(self):
             # Never manufacture placeholder frames or replay a stalled camera forever.
             while True:
                 with image_lock:
                     image = latest['image']
-                    fresh = time.monotonic() - latest['image_at'] < 2
-                if image is not None and fresh and image.frame != getattr(self, 'last_frame', None):
+                    pixels = latest['output'] if ai_enabled else None
+                    frame_id = latest['output_frame'] if ai_enabled else (image.frame if image else None)
+                    fresh = time.monotonic() - latest['output_at' if ai_enabled else 'image_at'] < 2
+                if image is not None and fresh and frame_id != getattr(self, 'last_frame', None):
                     break
                 await asyncio.sleep(0.01)
-            self.last_frame = image.frame
-            pixels = np.frombuffer(image.raw_data, dtype=np.uint8).reshape(image.height, image.width, 4)[:, :, :3].copy()
+            self.last_frame = frame_id
+            if not ai_enabled:
+                pixels = np.frombuffer(image.raw_data, dtype=np.uint8).reshape(image.height, image.width, 4)[:, :, :3].copy()
             frame = VideoFrame.from_ndarray(pixels, format='bgr24')
             if not hasattr(self, 'started_at'):
                 self.started_at = time.monotonic()
@@ -180,9 +204,38 @@ async def run(args):
             latest['image_at'] = time.monotonic()
             latest['image'] = image  # Latest only: do not accumulate camera latency.
 
+    def perception_loop():
+        last_frame = None
+        try:
+            while not quit_event.is_set():
+                with image_lock:
+                    image, captured_at = latest['image'], latest['image_at']
+                if image is None or image.frame == last_frame:
+                    quit_event.wait(0.01)
+                    continue
+                last_frame = image.frame
+                pixels = np.frombuffer(image.raw_data, dtype=np.uint8).reshape(image.height, image.width, 4)[:, :, :3].copy()
+                started = time.monotonic()
+                output, metrics = perception.process(pixels, timestamp=image.timestamp)
+                with image_lock:
+                    latest.update(output=output, output_at=captured_at,
+                                  output_frame=image.frame, ai=metrics)
+                # Work on the newest camera frame next; never queue old frames.
+                quit_event.wait(max(0, 1 / getattr(args, 'ai_fps', 15) - (time.monotonic() - started)))
+        except Exception as exc:
+            log.exception('YOLO processing stopped')
+            with image_lock:
+                latest['error'] = str(exc)
+            controls.stop()
+            quit_event.set()
+
     def control_loop():
         try:
             while not quit_event.is_set():
+                with image_lock:
+                    fresh = time.monotonic() - latest['output_at' if ai_enabled else 'image_at'] < 2
+                if not fresh:
+                    controls.stop()
                 throttle, brake, steer = controls.current()
                 vehicle.apply_control(carla.VehicleControl(throttle=throttle, brake=brake, steer=steer))
                 snapshot = world.get_snapshot()
@@ -211,7 +264,16 @@ async def run(args):
                 log.exception('Could not apply final brake')
 
     def setup_carla():
-        nonlocal vehicle, camera, worker, world
+        nonlocal vehicle, camera, worker, world, scene, perception, perception_worker
+        if ai_enabled:
+            set_phase('loading-models')
+            from perception import Perception
+            log.info('Loading YOLO checkpoint: %s', args.weights)
+            perception = Perception(args.weights, args.device, args.confidence, args.optical_flow,
+                prediction=getattr(args, 'prediction', 'off'),
+                prediction_ms=getattr(args, 'prediction_ms', 250),
+                raft_weights=getattr(args, 'raft_weights', DEFAULT_RAFT_WEIGHTS))
+        set_phase('connecting-carla')
         client = carla.Client(args.host, args.port)
         client.set_timeout(10.0)
         log.info('CARLA client %s, server %s', client.get_client_version(), client.get_server_version())
@@ -220,7 +282,12 @@ async def run(args):
         world = client.get_world()
         if world.get_settings().synchronous_mode:
             raise RuntimeError('This standalone bridge expects an asynchronous CARLA world. Start a fresh simulator without another synchronous controller.')
-        blueprint = world.get_blueprint_library().filter(args.vehicle)[0]
+        if getattr(world.get_settings(), 'no_rendering_mode', False):
+            raise RuntimeError('Enable CARLA rendering for RGB camera output.')
+        blueprints = world.get_blueprint_library().filter(args.vehicle)
+        if not blueprints:
+            raise ValueError(f'No vehicle blueprint matches {args.vehicle}')
+        blueprint = blueprints[0]
         blueprint.set_attribute('role_name', 'ghostdriver')
         spawn_points = world.get_map().get_spawn_points()
         if not spawn_points:
@@ -233,11 +300,22 @@ async def run(args):
             raise RuntimeError('No free spawn point')
         vehicle.set_autopilot(False)
         vehicle.apply_control(carla.VehicleControl(brake=1.0))
+        # Actor transforms are cached at ticks. Wait before locating nearby
+        # traffic, otherwise a freshly spawned ego may still report (0, 0, 0).
+        world.wait_for_tick(10.0)
+        set_phase('spawning-traffic')
+        scene = TrafficScene(world, carla)
+        scene.spawn(client, vehicle, getattr(args, 'traffic', 0), getattr(args, 'bicycles', 0),
+                    getattr(args, 'pedestrians', 0), getattr(args, 'tm_port', 8000))
         camera_bp = world.get_blueprint_library().find('sensor.camera.rgb')
         for key, value in {'image_size_x': args.width, 'image_size_y': args.height, 'fov': 90, 'sensor_tick': 1/30}.items():
             camera_bp.set_attribute(key, str(value))
         camera = world.spawn_actor(camera_bp, carla.Transform(carla.Location(x=2.0, z=1.5)), attach_to=vehicle)
+        set_phase('waiting-camera')
         camera.listen(on_image)
+        if ai_enabled:
+            perception_worker = threading.Thread(target=perception_loop, name='yolo-inference', daemon=True)
+            perception_worker.start()
         worker = threading.Thread(target=control_loop, name='carla-controls', daemon=True)
         worker.start()
 
@@ -246,11 +324,20 @@ async def run(args):
             with image_lock:
                 telemetry = latest['telemetry']
                 ready = (time.monotonic() - latest['image_at'] < 2
+                         and (not ai_enabled or time.monotonic() - latest['output_at'] < 2)
                          and time.monotonic() - latest['telemetry_at'] < 2
                          and not quit_event.is_set())
+                phase = latest['phase']
+                if ready:
+                    latest['phase'] = phase = 'ready'
+                elif phase == 'ready':
+                    phase = 'camera-unavailable'
+                if telemetry:
+                    telemetry = {**telemetry, 'perception': {**latest['ai'], 'fresh': ready},
+                                 'traffic': dict(scene.counts) if scene else {}}
             if sio.connected:
                 try:
-                    await sio.emit('vehicle:status', {'ready': ready, 'controlsStopped': controls.is_latched()})
+                    await sio.emit('vehicle:status', {'ready': ready, 'phase': phase, 'controlsStopped': controls.is_latched()})
                     if telemetry and ready:
                         await sio.emit('vehicle:telemetry', telemetry)
                 except socketio.exceptions.SocketIOError:
@@ -270,6 +357,16 @@ async def run(args):
         while not quit_event.is_set():
             await asyncio.sleep(0.2)
         raise RuntimeError(latest['error'] or 'CARLA worker stopped')
+    except Exception:
+        set_phase('error')
+        if sio.connected:
+            try:
+                await sio.emit('vehicle:status', {'ready': False, 'phase': 'error', 'controlsStopped': True})
+                # Let the error status reach the operator before closing signaling.
+                await asyncio.sleep(0.5)
+            except socketio.exceptions.SocketIOError:
+                pass
+        raise
     finally:
         controls.stop()
         quit_event.set()
@@ -282,14 +379,85 @@ async def run(args):
             await asyncio.gather(status_task, return_exceptions=True)
         if worker:
             await asyncio.to_thread(worker.join, 11)
-        await close_stream()
-        await sio.shutdown()
-        if camera:
-            camera.stop()
-            camera.destroy()
-        if vehicle:
-            vehicle.destroy()
-        log.info('Bridge closed; its camera and vehicle have been removed')
+        if perception_worker:
+            await asyncio.to_thread(perception_worker.join, 11)
+        try:
+            await close_stream()
+            await sio.shutdown()
+        finally:
+            await http_session.close()
+            try:
+                if camera:
+                    camera.stop()
+                    camera.destroy()
+            finally:
+                try:
+                    if vehicle:
+                        vehicle.destroy()
+                finally:
+                    if scene:
+                        scene.close()
+        log.info('Bridge closed; its camera, vehicle and background traffic have been removed')
+
+
+def parse_args(argv=None, environ=None):
+    env = os.environ if environ is None else environ
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--backend', default=env.get('BACKEND_URL', 'http://127.0.0.1:4000'))
+    parser.add_argument('--host', default=env.get('CARLA_HOST', '127.0.0.1'), help='CARLA server address')
+    parser.add_argument('--port', type=int, default=env.get('CARLA_PORT', '2000'))
+    parser.add_argument('--name', default=env.get('VEHICLE_NAME', 'Friend CARLA'))
+    parser.add_argument('--vehicle', default='vehicle.tesla.model3', help='Blueprint filter')
+    parser.add_argument('--width', type=int, default=640)
+    parser.add_argument('--height', type=int, default=360)
+    parser.add_argument('--ai', choices=['yolo', 'off'], default=env.get('AI_MODE', 'yolo'), help='YOLO annotations or raw camera')
+    parser.add_argument('--weights', type=Path, default=DEFAULT_WEIGHTS, help='Local trained YOLO checkpoint')
+    parser.add_argument('--device', default=env.get('AI_DEVICE', 'auto'), help='auto, cpu, or CUDA index such as 0')
+    parser.add_argument('--confidence', type=float, default=0.4)
+    parser.add_argument('--ai-fps', type=float, default=env.get('AI_FPS', '15'), help='Maximum inference frequency')
+    parser.add_argument('--optical-flow', action='store_true', help='Add a side-by-side Farneback motion view')
+    parser.add_argument('--prediction', choices=['off', 'raft', 'farneback'], default=env.get('PREDICTION', 'off'),
+                        help='Optional estimated future view beside live YOLO video')
+    parser.add_argument('--prediction-ms', type=int, default=env.get('PREDICTION_MS', '250'), help='Prediction horizon, not measured network latency')
+    parser.add_argument('--raft-weights', type=Path, default=DEFAULT_RAFT_WEIGHTS)
+    parser.add_argument('--traffic', type=int, default=env.get('TRAFFIC_CARS', '30'), help='Background cars requested; 0 disables')
+    parser.add_argument('--bicycles', type=int, default=env.get('TRAFFIC_BICYCLES', '5'))
+    parser.add_argument('--pedestrians', type=int, default=env.get('TRAFFIC_PEDESTRIANS', '20'))
+    parser.add_argument('--tm-port', type=int, default=8000)
+    args = parser.parse_args(argv)
+    args.token = env.get('SENDER_TOKEN', '')
+    if len(args.token) < 32:
+        parser.error('Set SENDER_TOKEN in carla-service/.env (at least 32 characters)')
+    try:
+        backend_url = urlparse(args.backend)
+        backend_port = backend_url.port
+    except ValueError:
+        parser.error('BACKEND_URL must be a valid base URL with a valid port')
+    if not backend_url.hostname or backend_url.path not in ('', '/') or backend_port == 0:
+        parser.error('BACKEND_URL must be the backend base URL, without an API path')
+    if backend_url.username or backend_url.password or backend_url.query or backend_url.fragment:
+        parser.error('BACKEND_URL must not contain credentials, query parameters or a fragment')
+    if backend_url.scheme != 'https' and not (backend_url.scheme == 'http' and backend_url.hostname in ('localhost', '127.0.0.1')):
+        parser.error('Remote BACKEND_URL must use HTTPS')
+    if args.width <= 0 or args.height <= 0:
+        parser.error('Image dimensions must be positive')
+    if not 1 <= args.port <= 65535 or not 1 <= args.tm_port <= 65535:
+        parser.error('CARLA and traffic manager ports must be between 1 and 65535')
+    if args.ai not in ('yolo', 'off') or args.prediction not in ('off', 'raft', 'farneback'):
+        parser.error('AI_MODE must be yolo/off and PREDICTION must be off/raft/farneback')
+    if not 0 < args.confidence <= 1 or not 0 < args.ai_fps <= 60:
+        parser.error('Confidence must be in (0, 1] and AI FPS in (0, 60]')
+    if any(not 0 <= count <= 200 for count in (args.traffic, args.bicycles, args.pedestrians)):
+        parser.error('Traffic counts must be between 0 and 200')
+    if args.optical_flow and args.ai == 'off':
+        parser.error('--optical-flow requires --ai yolo')
+    if args.prediction != 'off' and args.ai == 'off':
+        parser.error('--prediction requires --ai yolo')
+    if args.prediction != 'off' and args.optical_flow:
+        parser.error('Choose --prediction or --optical-flow for the second video panel')
+    if not 1 <= args.prediction_ms <= 800:
+        parser.error('--prediction-ms must be between 1 and 800')
+    return args
 
 
 def main():
@@ -297,32 +465,14 @@ def main():
     if '--help' not in __import__('sys').argv and '-h' not in __import__('sys').argv:
         from dotenv import load_dotenv
         load_dotenv(Path(__file__).with_name('.env'))
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--backend', default=os.getenv('BACKEND_URL', 'http://127.0.0.1:4000'))
-    parser.add_argument('--host', default='127.0.0.1', help='CARLA server address')
-    parser.add_argument('--port', type=int, default=2000)
-    parser.add_argument('--name', default='CARLA vehicle')
-    parser.add_argument('--vehicle', default='vehicle.tesla.model3', help='Blueprint filter')
-    parser.add_argument('--width', type=int, default=640)
-    parser.add_argument('--height', type=int, default=360)
-    args = parser.parse_args()
-    args.token = os.getenv('SENDER_TOKEN', '')
-    if len(args.token) < 32:
-        parser.error('Set SENDER_TOKEN in carla-service/.env (at least 32 characters)')
-    backend_url = urlparse(args.backend)
-    if backend_url.username or backend_url.password or backend_url.query or backend_url.fragment:
-        parser.error('BACKEND_URL must not contain credentials, query parameters or a fragment')
-    if backend_url.scheme != 'https' and not (backend_url.scheme == 'http' and backend_url.hostname in ('localhost', '127.0.0.1')):
-        parser.error('Remote BACKEND_URL must use HTTPS')
-    if args.width <= 0 or args.height <= 0:
-        parser.error('Image dimensions must be positive')
+    args = parse_args()
     logging.basicConfig(level=logging.INFO, format='%(levelname)s %(message)s')
     try:
         async def supervise():
             while True:
                 try:
                     await run(args)
-                except (ImportError, ModuleNotFoundError):
+                except (ImportError, ModuleNotFoundError, FileNotFoundError):
                     raise
                 except Exception as exc:
                     # Do not log URLs, SDP or credential-bearing exception contents.

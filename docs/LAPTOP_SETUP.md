@@ -8,16 +8,10 @@ Use Node 22.12 or newer. In the GhostDriver folder:
 
 ```sh
 npm run setup
-cp backend/.env.example backend/.env
+npm run doctor
 ```
 
-Generate two different tokens (run this twice):
-
-```sh
-openssl rand -hex 32
-```
-
-Edit `backend/.env`. Paste one token as `DASHBOARD_TOKEN` and the other as `SENDER_TOKEN`. Keep the dashboard token for yourself. Share the sender token privately with your friend, separately from the public URL. Do not put tokens in shell command arguments, URLs, source files, or `VITE_*` variables.
+Setup generates missing `DASHBOARD_TOKEN` and `SENDER_TOKEN` values in `backend/.env`, preserving existing settings. Do not overwrite that file with the example. Keep the dashboard token for yourself. Share the sender token privately with your friend, separately from the public URL. Do not put tokens in shell command arguments, URLs, source files, or `VITE_*` variables. `npm run configure` repeats configuration without reinstalling dependencies.
 
 Example configuration (replace the values marked in angle brackets in your local file):
 

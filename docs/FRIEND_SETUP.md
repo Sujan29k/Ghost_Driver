@@ -1,5 +1,7 @@
 # Friend's computer: CARLA setup and agent prompt
 
+For the integrated traffic, YOLO and RAFT setup, start with [AI_TRAFFIC.md](AI_TRAFFIC.md). Use Python 3.10+; for CARLA 0.9.15 on Windows x64, use Python 3.10 and the matching `carla==0.9.15` client. The older Python 3.7 environment is incompatible with this bridge.
+
 Run **CARLA and the Python bridge** on this GPU computer. The laptop owner runs the React dashboard, Node backend, and Cloudflare tunnel on their Mac. Prepare the project, Python environment, and simulator while they prepare the backend; their current tunnel URL and sender token are needed for the remote connection steps.
 
 See [Steps to run on both computers](STEPS_TO_RUN.md) for the coordinated guide. To have an agent perform this setup, copy the [prompt at the end](#copyable-prompt-for-the-agent-on-this-computer).
@@ -22,7 +24,7 @@ CARLA loads a world: Yes / No
 
 The laptop owner must privately provide their **current backend HTTPS URL** and **SENDER_TOKEN**. You do not need their dashboard token, TURN password, or Cloudflare credentials; ICE settings are supplied by the backend after authentication.
 
-You do not need Node.js, npm, cloudflared, YOLO, model weights, or research datasets for this live bridge. Do not expose CARLA ports 2000–2002 or configure router port forwarding.
+You do not need Node.js, npm, cloudflared, or research datasets. The live bridge uses YOLO and the bundled best.pt checkpoint; install requirements-ai.txt. Do not expose CARLA ports 2000–2002 or configure router port forwarding.
 
 Use only the commands for your OS below. Replace example installation paths and uppercase placeholders with actual values.
 
@@ -44,13 +46,13 @@ All subsequent **project commands** run from the folder containing `carla-servic
 Windows PowerShell:
 
 ```powershell
-Get-Item carla-service/bridge.py, carla-service/requirements.txt, carla-service/.env.example
+Get-Item carla-service/bridge.py, carla-service/requirements-ai.txt, carla-service/.env.example
 ```
 
 Linux:
 
 ```bash
-ls carla-service/bridge.py carla-service/requirements.txt carla-service/.env.example
+ls carla-service/bridge.py carla-service/requirements-ai.txt carla-service/.env.example
 ```
 
 ## 3. Choose compatible CARLA and Python versions
@@ -84,7 +86,7 @@ Linux example:
 ls "/actual/path/to/CARLA/PythonAPI/carla/dist"
 ```
 
-The simulator and Python client versions must match **exactly**. The wheel must match the interpreter, OS, and CPU architecture. For example, `cp310` targets CPython 3.10; it is not a recommendation to use 3.10 for every release. The interpreter must also support `carla-service/requirements.txt`.
+The simulator and Python client versions must match **exactly**. The wheel must match the interpreter, OS, and CPU architecture. For example, `cp310` targets CPython 3.10; it is not a recommendation to use 3.10 for every release. The interpreter must also support `carla-service/requirements-ai.txt`.
 
 If CARLA or compatible Python is absent:
 
@@ -107,7 +109,7 @@ If the default `py` interpreter is compatible:
 py -m venv carla-service/.venv
 .\carla-service\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install -r carla-service/requirements.txt
+python -m pip install -r carla-service/requirements-ai.txt
 ```
 
 If the actual wheel requires an installed Python 3.10, replace the first command with this example before creating the environment:
@@ -120,7 +122,7 @@ If activation is blocked, use the interpreter directly instead of changing globa
 
 ```powershell
 .\carla-service\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\carla-service\.venv\Scripts\python.exe -m pip install -r carla-service/requirements.txt
+.\carla-service\.venv\Scripts\python.exe -m pip install -r carla-service/requirements-ai.txt
 ```
 
 For **every later command** starting with `python`, substitute `.\carla-service\.venv\Scripts\python.exe` if activation was skipped.
@@ -133,7 +135,7 @@ If `python3` is compatible:
 python3 -m venv carla-service/.venv
 source carla-service/.venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -r carla-service/requirements.txt
+python -m pip install -r carla-service/requirements-ai.txt
 ```
 
 Otherwise substitute the correct installed interpreter in the first command, such as `python3.10` when required by the actual wheel.
@@ -385,10 +387,10 @@ Known details (inspect when UNKNOWN):
 
 Architecture and scope:
 This GPU computer runs CARLA and carla-service/bridge.py. My collaborator's Mac runs React, the Express/Socket.IO backend at 127.0.0.1:4000, and Cloudflare tunnel. Their dashboard normally opens at http://localhost:5173 on their Mac. The bridge connects to their current HTTPS tunnel URL for signaling/status/controls; video uses WebRTC directly or the TURN service configured on their backend.
-Do not install Node/npm/cloudflared, run a local GhostDriver backend, duplicate TURN credentials, or download YOLO/model weights/research datasets here. Keep CARLA private at 127.0.0.1:2000. Do not expose ports 2000–2002, forward router ports, disable firewalls, or disable authentication.
+Do not install Node/npm/cloudflared, run a local GhostDriver backend, or duplicate TURN credentials. Install YOLO through requirements-ai.txt and use the bundled best.pt checkpoint; no research dataset download is needed. Keep CARLA private at 127.0.0.1:2000. Do not expose ports 2000–2002, forward router ports, disable firewalls, or disable authentication.
 
 1. Inspect before changing anything.
-Locate the project and follow applicable AGENTS.md instructions. Read README.md, docs/FRIEND_SETUP.md, docs/CONNECTION_TEST.md, carla-service/requirements.txt, carla-service/.env.example, and the bridge's startup/options code.
+Locate the project and follow applicable AGENTS.md instructions. Read README.md, docs/FRIEND_SETUP.md, docs/CONNECTION_TEST.md, carla-service/requirements-ai.txt, carla-service/.env.example, and the bridge's startup/options code.
 Identify OS/version, architecture, GPU/driver, free disk space, installed Python interpreters, CARLA release/location, relevant processes, and local port usage. Inspect existing virtual environments and local project changes. Preserve existing files and unrelated simulator work; do not reset the repository or kill unrelated processes.
 
 2. Obtain the project if absent.
@@ -396,13 +398,13 @@ Repository: https://github.com/Sujan29k/Ghost_Driver.git
 Clone into a suitable user-owned folder only if no existing checkout is available. For private access, request repository access or a project copy instead of inventing credentials. Use the folder containing carla-service as the project root. Do not overwrite local work.
 
 3. Resolve compatibility before installation.
-Reuse a suitable installed CARLA release. The Python client must match the simulator version exactly, and its wheel must match OS, architecture, and Python ABI. The interpreter must also support all dependencies in carla-service/requirements.txt.
+Reuse a suitable installed CARLA release. The Python client must match the simulator version exactly, and its wheel must match OS, architecture, and Python ABI. The interpreter must also support all dependencies in carla-service/requirements-ai.txt.
 Do not blindly install the latest Python or carla package. Inspect supplied wheels and official release/package metadata. If CARLA, Python, Git, or necessary runtime prerequisites are absent, consult official documentation, identify the exact compatible downloads and required disk space, and install the necessary components within available permissions. Prefer a compatible packaged simulator to a source build. Respect system/network approval requirements and explain concrete blockers; never bypass approval controls.
 pip install carla installs the client, not the simulator. If no compatible combination is available, report the specific conflict and next step rather than concealing a mismatch or weakening checks.
 
 4. Prepare the isolated environment.
-Create or reuse carla-service/.venv with the selected interpreter. Preserve an incompatible existing environment rather than silently replacing it. Install requirements.txt and the exact matching CARLA wheel or exact package-index version when supported.
-The bridge uses CARLA, aiortc/PyAV, python-socketio, aiohttp, NumPy, and python-dotenv. Treat requirements.txt as authoritative. Do not install project packages globally or use sudo pip. On Windows, use the venv python.exe directly if activation is blocked; do not relax global execution policy.
+Create or reuse carla-service/.venv with the selected interpreter. Preserve an incompatible existing environment rather than silently replacing it. Install requirements-ai.txt and the exact matching CARLA wheel or exact package-index version when supported.
+The bridge uses CARLA, aiortc/PyAV, python-socketio, aiohttp, NumPy, python-dotenv, and Ultralytics/PyTorch/OpenCV for YOLO. Treat requirements-ai.txt and its included base requirements as authoritative. Do not install project packages globally or use sudo pip. On Windows, use the venv python.exe directly if activation is blocked; do not relax global execution policy.
 Run with the venv interpreter:
 python --version
 python -m pip check

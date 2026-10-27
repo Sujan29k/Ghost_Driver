@@ -1,5 +1,7 @@
 # Friend's CARLA setup checklist
 
+For the integrated traffic, YOLO and RAFT setup, start with [AI_TRAFFIC.md](AI_TRAFFIC.md). Use Python 3.10+; for CARLA 0.9.15 on Windows x64, use Python 3.10 and the matching `carla==0.9.15` client. The older Python 3.7 environment is incompatible with this bridge.
+
 Follow this file on the GPU computer that will run CARLA. Run commands one at a time. Replace placeholders with your actual values.
 
 Your computer runs CARLA and the Python bridge. The laptop owner runs the dashboard, backend, and tunnel. You do not need Node.js or cloudflared.
@@ -38,13 +40,13 @@ Use the Python interpreter that matches your CARLA wheel. If your default Python
 ```powershell
 py -m venv carla-service/.venv
 .\carla-service\.venv\Scripts\Activate.ps1
-python -m pip install -r carla-service/requirements.txt
+python -m pip install -r carla-service/requirements-ai.txt
 ```
 
 If PowerShell blocks activation, you can run the environment's interpreter directly instead. Use this executable in place of `python` for every remaining command:
 
 ```powershell
-.\carla-service\.venv\Scripts\python.exe -m pip install -r carla-service/requirements.txt
+.\carla-service\.venv\Scripts\python.exe -m pip install -r carla-service/requirements-ai.txt
 ```
 
 ### Linux
@@ -52,7 +54,7 @@ If PowerShell blocks activation, you can run the environment's interpreter direc
 ```sh
 python3 -m venv carla-service/.venv
 source carla-service/.venv/bin/activate
-python -m pip install -r carla-service/requirements.txt
+python -m pip install -r carla-service/requirements-ai.txt
 ```
 
 ## 3. Install the matching CARLA Python client

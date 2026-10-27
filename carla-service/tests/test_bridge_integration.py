@@ -38,6 +38,7 @@ class FakeCarla:
         actor = SimpleNamespace(get_velocity=lambda: SimpleNamespace(x=0, y=0, z=0),
             get_transform=lambda: SimpleNamespace(rotation=SimpleNamespace(yaw=0)))
         world = SimpleNamespace(
+            wait_for_tick=lambda _: None,
             get_settings=lambda: SimpleNamespace(synchronous_mode=False),
             get_blueprint_library=lambda: SimpleNamespace(filter=lambda _: [blueprint], find=lambda _: blueprint),
             get_map=lambda: SimpleNamespace(get_spawn_points=lambda: [None]),
@@ -61,7 +62,8 @@ class FakeCarla:
                 if self.paused:
                     continue
                 self.frame += 1
-                callback(SimpleNamespace(frame=self.frame, raw_data=pixels.tobytes(), width=64, height=48))
+                callback(SimpleNamespace(frame=self.frame, timestamp=self.frame / 30,
+                                         raw_data=pixels.tobytes(), width=64, height=48))
         self.thread = threading.Thread(target=produce, daemon=True)
         self.thread.start()
 
@@ -69,6 +71,15 @@ class FakeCarla:
 @unittest.skipUnless(AVAILABLE, 'Install carla-service/requirements.txt for the optional aiortc integration test')
 class BridgeIntegrationTest(unittest.IsolatedAsyncioTestCase):
     async def test_python_signaling_frames_camera_loss_and_cleanup(self):
+        await self.exercise_bridge(False)
+
+    async def test_processed_frames_camera_loss_and_cleanup(self):
+        await self.exercise_bridge(True)
+
+    async def test_stalled_inference_stops_video_while_camera_is_alive(self):
+        await self.exercise_bridge(True, stall_inference=True)
+
+    async def exercise_bridge(self, ai, stall_inference=False):
         import bridge
         root = Path(__file__).resolve().parents[2]
         env = {**os.environ, 'DASHBOARD_TOKEN': 'integration-dashboard-token-0000000000',
@@ -88,6 +99,8 @@ class BridgeIntegrationTest(unittest.IsolatedAsyncioTestCase):
         stops = asyncio.Queue()
         vehicles = []
         candidates = []
+        stall = threading.Event()
+        release_inference = threading.Event()
 
         @operator.on('vehicles:list')
         async def discovered(data):
@@ -127,8 +140,17 @@ class BridgeIntegrationTest(unittest.IsolatedAsyncioTestCase):
             url = f'http://127.0.0.1:{port}'
             await operator.connect(url, auth={'role': 'dashboard', 'token': env['DASHBOARD_TOKEN']}, transports=['websocket'])
             args = SimpleNamespace(backend=url, token=env['SENDER_TOKEN'], host='127.0.0.1', port=2000,
-                name='CARLA API fixture (test only)', vehicle='test', width=64, height=48)
-            with patch.dict(sys.modules, {'carla': fake}):
+                name='CARLA API fixture (test only)', vehicle='test', width=64, height=48,
+                ai='yolo' if ai else 'off', weights='fixture', device='cpu', confidence=0.4, optical_flow=True)
+            # Stub only inference here; test the real dedicated worker, frame
+            # freshness, doubled output size and aiortc encode/decode path.
+            def process(pixels, timestamp=None):
+                if stall.is_set():
+                    release_inference.wait(10)
+                return np.hstack([pixels, pixels]), {
+                    'enabled': True, 'objects': 2, 'inferenceMs': 1, 'flow': True, 'warning': False}
+            processor = SimpleNamespace(process=process)
+            with patch.dict(sys.modules, {'carla': fake}), patch('perception.Perception', return_value=processor):
                 task = asyncio.create_task(bridge.run(args))
                 deadline = time.monotonic() + 10
                 while not vehicles or not vehicles[0]['ready']:
@@ -148,7 +170,7 @@ class BridgeIntegrationTest(unittest.IsolatedAsyncioTestCase):
                     'sdp': {'type': peer.localDescription.type, 'sdp': peer.localDescription.sdp}})
                 first = await asyncio.wait_for(frames.get(), 10)
                 second = await asyncio.wait_for(frames.get(), 5)
-                self.assertEqual((first.width, first.height), (64, 48))
+                self.assertEqual((first.width, first.height), (128 if ai else 64, 48))
                 self.assertGreater(second.pts, first.pts)
                 pixel = first.to_ndarray(format='bgr24')[20, 20]
                 self.assertGreater(int(pixel[2]), 200)
@@ -158,11 +180,15 @@ class BridgeIntegrationTest(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue((await operator.call('control:direct', {'sequence': 1, 'throttle': 1, 'brake': 0, 'steer': 0}))['success'])
                 await asyncio.sleep(0.1)
                 self.assertEqual(fake.control.throttle, 1)
-                fake.paused = True
+                if stall_inference:
+                    stall.set()
+                else:
+                    fake.paused = True
                 self.assertEqual((await asyncio.wait_for(stops.get(), 5))['reason'], 'CARLA camera unavailable')
                 await asyncio.sleep(0.1)
                 self.assertEqual(fake.control.brake, 1)
         finally:
+            release_inference.set()
             if task:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):

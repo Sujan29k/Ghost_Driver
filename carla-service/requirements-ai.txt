@@ -1,0 +1,5 @@
+-r requirements.txt
+# YOLOv8 checkpoint supplied by sudip-work; torch/OpenCV are dependencies.
+ultralytics>=8.3,<9
+# Explicit requirements for bundled RAFT inference and checkpoint loading.
+torch>=2.6,<3

@@ -2,5 +2,6 @@
 aiortc>=1.10,<2
 python-socketio[asyncio_client]>=5.12,<6
 aiohttp>=3.9,<4
+certifi>=2024.2.2
 numpy>=1.24,<3
 python-dotenv>=1.0,<2

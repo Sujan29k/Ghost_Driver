@@ -72,19 +72,37 @@ function ControlInputBar({ label, value, colorClass, invert = false }) {
 }
 
 export default function TelemetryPanel() {
-  const { speed, fps, latency, packetLoss, networkQuality, throttle, brake, steer, gear, heading, statsAvailable } = useVehicleStore();
+  const { speed, fps, latency, packetLoss, videoRtt, videoRoute, networkQuality, throttle, brake, steer, gear, heading, statsAvailable, perception, traffic, streamActive } = useVehicleStore();
+  const aiActive = streamActive && perception?.enabled && perception?.fresh;
 
   const latInfo = formatLatency(latency);
   const fpsInfo = formatFPS(fps);
   const netInfo = formatNetworkQuality(networkQuality);
 
   return (
-    <div className="flex flex-col gap-3 w-64 overflow-y-auto pr-0.5" style={{ scrollbarWidth: 'thin' }}>
+    <div className="flex flex-col gap-3 w-64 h-full overflow-y-auto pr-0.5" style={{ scrollbarWidth: 'thin' }}>
       {/* Speed Gauge */}
       <SpeedGauge speed={speed} />
 
+      <div className="ghost-panel p-3 text-xs flex flex-col gap-2" aria-label="Scene and perception">
+        <span className="font-mono text-ghost-accent">Scene and perception</span>
+        <span>Spawned cars: {traffic?.vehicles ?? '—'} · Bikes: {traffic?.bicycles ?? '—'}</span>
+        <span>Pedestrians: {traffic?.pedestrians ?? '—'}</span>
+        <span>YOLO: {aiActive ? 'Processing live frames' : 'Inactive'}</span>
+        <span>Road objects in frame: {aiActive ? perception.objects : '—'}</span>
+        <span>Processing: {aiActive && perception.inferenceMs != null ? `${Math.round(perception.inferenceMs)} ms` : '—'}</span>
+        <span>Prediction: {aiActive && perception.prediction?.method !== 'off' && perception.prediction?.method
+          ? `${perception.prediction.method.toUpperCase()} · ${perception.prediction.ready ? `+${perception.prediction.horizonMs} ms estimate` : 'Buffering'}` : 'Off'}</span>
+        {aiActive && perception.warning && <span className="text-ghost-warning">Large object in view. Advisory only; use the driving controls to brake.</span>}
+        <span className="text-ghost-muted">Spawned actors may be outside the camera view.</span>
+      </div>
+
       {/* Key Metrics */}
       <div className="grid grid-cols-2 gap-2">
+        <TelemetryCard label="Video RTT" value={videoRtt == null ? '—' : `${videoRtt} ms`}
+          colorClass="text-ghost-accent" subtext="Browser ↔ sender" />
+        <TelemetryCard label="Video route" value={videoRoute} colorClass="text-ghost-text" valueClassName="text-base"
+          subtext="Selected WebRTC path" />
         <TelemetryCard
           label="FPS"
           value={statsAvailable ? fpsInfo.label : '—'}

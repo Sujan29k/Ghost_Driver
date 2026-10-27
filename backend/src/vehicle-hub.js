@@ -1,10 +1,28 @@
 const { randomUUID } = require('node:crypto');
 
+function perceptionTelemetry(data) {
+  const p = data?.perception;
+  const count = (n) => Number.isInteger(n) && n >= 0 && n <= 10000 ? n : 0;
+  const duration = (n) => Number.isFinite(n) && n >= 0 ? Math.min(n, 60000) : null;
+  const method = ['raft', 'farneback'].includes(p?.prediction?.method) ? p.prediction.method : 'off';
+  return {
+    perception: { enabled: p?.enabled === true, fresh: p?.fresh === true,
+      objects: count(p?.objects), warning: p?.warning === true, flow: p?.flow === true,
+      inferenceMs: duration(p?.inferenceMs),
+      prediction: { method, ready: method !== 'off' && p?.prediction?.ready === true,
+        horizonMs: Number.isInteger(p?.prediction?.horizonMs) && p.prediction.horizonMs > 0 && p.prediction.horizonMs <= 800
+          ? p.prediction.horizonMs : null,
+        inferenceMs: duration(p?.prediction?.inferenceMs) } },
+    traffic: { vehicles: count(data?.traffic?.vehicles), bicycles: count(data?.traffic?.bicycles),
+      pedestrians: count(data?.traffic?.pedestrians) },
+  };
+}
+
 function createVehicleHub(io, { commandTimeout = 750, providerTimeout = 6000, frameTimeout = 5000, config } = {}) {
   const vehicles = new Map();
   const operators = new Map();
   const sessions = new Map();
-  const publicVehicle = (v) => ({ id: v.id, name: v.name, mode: v.mode, busy: !!v.owner, ready: v.ready });
+  const publicVehicle = (v) => ({ id: v.id, name: v.name, mode: v.mode, busy: !!v.owner, ready: v.ready, phase: v.phase });
   const publish = () => io.emit('vehicles:list', [...vehicles.values()].map(publicVehicle));
   const owned = (socket) => vehicles.get(operators.get(socket.id));
   const reply = (ack, result) => { if (typeof ack === 'function') ack(result); };
@@ -69,7 +87,7 @@ function createVehicleHub(io, { commandTimeout = 750, providerTimeout = 6000, fr
       if (!data || !['mock', 'carla'].includes(data.mode)) return reply(ack, { success: false, message: 'Provider mode must be mock or carla' });
       if (operators.has(socket.id)) return reply(ack, { success: false, message: 'Release your vehicle before becoming a provider' });
       if (!vehicles.has(socket.id)) vehicles.set(socket.id, { id: socket.id, name: String(data.name || 'Vehicle').slice(0, 80),
-        mode: data.mode, ready: data.mode === 'mock', owner: null, emergency: true, telemetry: null, lastSeen: Date.now(), lastCommand: 0, commandId: 0, sequence: -1 });
+        mode: data.mode, ready: data.mode === 'mock', phase: data.mode === 'mock' ? 'ready' : 'starting', owner: null, emergency: true, telemetry: null, lastSeen: Date.now(), lastCommand: 0, commandId: 0, sequence: -1 });
       publish();
       reply(ack, { success: true, vehicleId: socket.id });
     });
@@ -126,9 +144,15 @@ function createVehicleHub(io, { commandTimeout = 750, providerTimeout = 6000, fr
       if (data?.controlsStopped === true && !v.emergency && Date.now() - v.resumedAt > 1000) latch(v, 'Sender safety stop');
       v.lastSeen = Date.now();
       const ready = data?.ready === true;
-      if (ready !== v.ready) {
+      // Only known phases cross to the dashboard. Never forward raw exceptions,
+      // filesystem paths, backend URLs or sender credentials.
+      const phases = ['loading-models', 'connecting-carla', 'spawning-traffic', 'waiting-camera', 'camera-unavailable', 'error'];
+      const phase = ready ? 'ready' : phases.includes(data?.phase) ? data.phase : 'starting';
+      if (ready !== v.ready || phase !== v.phase) {
+        const lostCamera = v.ready && !ready;
         v.ready = ready;
-        if (!ready) { stopStream(v, 'CARLA camera unavailable'); latch(v, 'CARLA unavailable'); }
+        v.phase = phase;
+        if (lostCamera) { stopStream(v, 'CARLA camera unavailable'); latch(v, 'CARLA unavailable'); }
         publish();
       }
     });
@@ -140,7 +164,8 @@ function createVehicleHub(io, { commandTimeout = 750, providerTimeout = 6000, fr
       v.telemetry = { vehicleId: v.id, mode: v.mode, receivedAt: Date.now(), emergency: v.emergency,
         speed: data.speed, throttle: data.throttle, brake: data.brake, steer: data.steer, heading: data.heading,
         gear: String(data.gear || 'N').slice(0, 8), frameId: Number.isFinite(data.frameId) ? data.frameId : null,
-        simulationTimestamp: Number.isFinite(data.simulationTimestamp) ? data.simulationTimestamp : null };
+        simulationTimestamp: Number.isFinite(data.simulationTimestamp) ? data.simulationTimestamp : null,
+        ...perceptionTelemetry(data) };
       if (v.owner) io.to(v.owner).emit('telemetry:update', v.telemetry);
     });
     socket.on('stream:request', (data, ack) => {
@@ -190,7 +215,7 @@ function createVehicleHub(io, { commandTimeout = 750, providerTimeout = 6000, fr
   }
   return { register, close: () => clearInterval(timer), health: () => ({
     vehicles: [...vehicles.values()].map(publicVehicle), sessions: sessions.size,
-    prediction: 'not-implemented', telemetry: 'provider',
+    prediction: 'provider', telemetry: 'provider',
   }) };
 }
 module.exports = { createVehicleHub };

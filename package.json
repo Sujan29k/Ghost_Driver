@@ -4,7 +4,10 @@
   "version": "0.2.0",
   "engines": { "node": ">=22.12.0" },
   "scripts": {
-    "setup": "npm ci --prefix backend && npm ci --prefix frontend",
+    "setup": "npm ci --prefix backend && npm ci --prefix frontend && npm run configure",
+    "configure": "node scripts/configure.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "package:sender": "python3 scripts/package_sender.py",
     "dev": "node scripts/dev.mjs",
     "build": "npm run build --prefix frontend",
     "start": "node backend/src/server.js",

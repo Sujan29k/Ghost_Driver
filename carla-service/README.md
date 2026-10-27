@@ -2,9 +2,17 @@
 
 Use **[the GPU computer setup guide](../docs/FRIEND_SETUP.md)** for installation, matching the CARLA Python client, configuration, and startup commands.
 
-`bridge.py` is the live CARLA/aiortc sender. `control_state.py` implements its independent braking watchdog. The `ghostdriver/` folder contains earlier research scripts and is not used by the live video connection.
+The shorter [Mac + GPU quick start](../docs/QUICK_START.md) includes the transferable
+sender archive. After installing dependencies, run `python carla-service/configure.py`
+from the project root to save the Mac's tunnel URL and sender token. A new
+configuration enables YOLO + RAFT; subsequent runs preserve the saved AI settings.
 
-Local safety checks without CARLA:
+`bridge.py` is the live CARLA/aiortc sender. `control_state.py` implements its independent braking watchdog. The bridge loads `ghostdriver/yolov8n_coco128-5/weights/best.pt` by default. `perception.py` handles YOLO, `prediction.py` integrates optional RAFT-Small/Farneback prediction, and `traffic.py` owns background actors. See [AI and traffic setup](../docs/AI_TRAFFIC.md). The old `ghostdriver/integration.py` entry point delegates to this bridge; dataset/evaluation scripts remain offline tools.
+
+Use Python 3.10+ and `requirements-ai.txt`. For CARLA 0.9.15 on Windows/Linux x64, Python 3.10 with `carla==0.9.15` is a compatible client choice. Run `python carla-service/check_setup.py --prediction raft` from the repository root after starting CARLA. It checks model inference and simulator compatibility without spawning actors. Add `--models-only` to check models without CARLA.
+
+Local safety checks without CARLA, from a full repository checkout (the sender
+archive contains runtime files rather than the test harness):
 
 ```sh
 python3 -m unittest discover -s carla-service/tests -v

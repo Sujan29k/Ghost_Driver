@@ -1,5 +1,8 @@
 # GhostDriver — run checklist for our next session
 
+Current quick start: docs/QUICK_START.md. The local integration is complete and
+tested; use npm run package:sender to transfer it before a GitHub push.
+
 We will continue with the unchecked items below. The first goal is live CARLA
 video between the two networks; leave driving controls stopped until video works.
 Secret values belong only in the ignored .env files, not in this checklist.
@@ -10,13 +13,13 @@ Secret values belong only in the ignored .env files, not in this checklist.
 - [x] Sender token configured (confirmed by you).
 - [x] Cloudflare Tunnel client, cloudflared, installed (confirmed by you).
 - [x] Remote-video code and separate setup guides added.
-- [x] Local validation passed: 11 backend tests, 2 browser tests, 4 Python tests,
+- [x] Local validation passed: 13 backend tests, 3 browser tests, 16 Python tests,
       and the frontend build. Tests used a demo sender / CARLA API stub;
       real CARLA and the two-network connection still need testing.
 
 ## Your laptop — next steps
 
-- [ ] Configure an external TURN service in backend/.env:
+- [x] TURN settings are populated in backend/.env; live relay verification remains:
       TURN_URL, TURN_USERNAME, TURN_PASSWORD. Keep the STUN_URL setting too.
       Both peers receive these settings from the authenticated backend.
       Leaving all TURN fields empty permits a STUN-only trial, but connections
@@ -49,13 +52,13 @@ Secret values belong only in the ignored .env files, not in this checklist.
 
       python3 -m venv carla-service/.venv
       source carla-service/.venv/bin/activate
-      python -m pip install -r carla-service/requirements.txt
+      python -m pip install -r carla-service/requirements-ai.txt
 
       On Windows PowerShell, use py instead of python3 to create the environment,
       then activate with carla-service/.venv/Scripts/Activate.ps1.
 - [ ] Install the CARLA Python client matching the simulator version exactly.
       Use the matching wheel's actual path with python -m pip install.
-- [ ] Copy carla-service/.env.example to carla-service/.env and fill in:
+- [ ] Run python carla-service/configure.py to save:
 
       BACKEND_URL=<the public HTTPS tunnel address>
       SENDER_TOKEN=<the privately shared sender token>
@@ -65,6 +68,7 @@ Secret values belong only in the ignored .env files, not in this checklist.
       ports private; do not forward or tunnel ports 2000–2002.
 - [ ] With the virtual environment active, start the bridge from the project root:
 
+      python carla-service/check_setup.py
       python carla-service/bridge.py --host 127.0.0.1 --port 2000
 
       Keep CARLA and the bridge running. Your friend does not need to start

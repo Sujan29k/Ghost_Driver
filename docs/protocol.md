@@ -11,11 +11,11 @@ Authenticated clients request `rtc:config` with `{}` and receive `{success:true,
 ## Discovery and ownership
 
 - Provider → `vehicle:join`: `{name, mode: "mock" | "carla"}`; acknowledgement `{success, vehicleId}`. The current socket ID is the vehicle ID.
-- Server → `vehicles:list`: array of `{id, name, mode, busy, ready}`. Emitted on connection and registration/ownership changes. A client can request it with `vehicles:request`.
+- Server → `vehicles:list`: array of `{id, name, mode, busy, ready, phase}`. Emitted on connection, registration, ownership and startup phase changes. A client can request it with `vehicles:request`.
 - Operator → `vehicle:connect`: `{vehicleId}`; acknowledgement `{success, vehicle, emergency}` or `{success:false, message}`. One owner per vehicle; one vehicle per operator.
 - Operator → `vehicle:disconnect`: `{}`; acknowledgement `{success:true}`.
 - Server → operator `vehicle:released`: `{reason}`. Clear video and driving state.
-- Provider sends `vehicle:status` `{ready, controlsStopped}` every 200 ms. CARLA readiness requires fresh camera frames and telemetry. A readiness loss stops video and latches brakes. A locally latched control watchdog is reported back to the owner. Valid status or telemetry must arrive within six seconds. On timeout the server removes registration and releases the operator. If telemetry resumes on an unregistered socket, the server emits `vehicle:registration-required`; the provider repeats `vehicle:join` and resets its command sequence state.
+- Provider sends `vehicle:status` `{ready, controlsStopped, phase?}` every 200 ms. Recognized phases are `starting`, `loading-models`, `connecting-carla`, `spawning-traffic`, `waiting-camera`, `camera-unavailable`, `error` and `ready`. The server only forwards known phases and sets `ready` when fresh frames are reported; raw exception details are not published. CARLA readiness requires fresh camera frames, processed output when AI is enabled, and telemetry. A readiness loss stops video and latches brakes. A locally latched control watchdog is reported back to the owner. Valid status or telemetry must arrive within six seconds. On timeout the server removes registration and releases the operator. If telemetry resumes on an unregistered socket, the server emits `vehicle:registration-required`; the provider repeats `vehicle:join` and resets its command sequence state.
 
 ## Controls
 
@@ -65,4 +65,22 @@ A new stream request closes the previous session. Late messages from previous se
 
 `ping:measure` `{}` receives an acknowledgement from the server. Compute RTT using the browser's own monotonic start/end timestamps. This is signaling-server RTT only. Video FPS and interval packet loss come from the receiver's WebRTC statistics.
 
+Video RTT is `currentRoundTripTime` from the selected WebRTC candidate pair,
+converted from seconds to milliseconds. It measures browser-to-sender round-trip
+time, not camera-to-display latency. Missing statistics display an em dash.
+
 `GET /api/health` exposes only `{success:true}`; it reveals no vehicle or credential details. Legacy unauthenticated REST control endpoints return 405; controls require an owned Socket.IO connection.
+
+### Perception and scene telemetry
+
+`vehicle:telemetry` may include `perception: { enabled, fresh, objects, warning,
+inferenceMs, flow, prediction: { method, ready, horizonMs, inferenceMs } }` and
+`traffic: { vehicles, bicycles, pedestrians }`. Prediction method is `off`, `raft`
+or `farneback`; horizon is 1–800 ms of extrapolation, not measured network latency.
+The outer processing time includes the complete image pipeline. The backend
+validates and forwards bounded scalar values to the owning dashboard in
+`telemetry:update`. Traffic counts report actors successfully spawned by this
+bridge; objects counts only road classes detected in the latest processed frame.
+`warning` is a large-image-area advisory, not a brake command or distance estimate.
+Annotated video (and optional side-by-side prediction or Farneback motion) uses the existing
+WebRTC track. No separate image packets or unauthenticated AI endpoints are added.

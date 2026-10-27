@@ -6,14 +6,16 @@ import React, { useRef } from 'react';
 import useVehicleStore from '../../store/vehicleStore';
 import useWebRTC from '../../hooks/useWebRTC';
 import { formatHeading } from '../../utils/formatters';
+import { senderStatus } from '../../utils/senderStatus';
 
 export default function VideoFeed() {
   const videoRef = useRef(null);
-  const { streamActive, vehicleConnected, speed, heading, fps, networkQuality, mode, statsAvailable, packetLoss, videoRoute, socketConnected, vehicles, webrtcStatus } = useVehicleStore();
+  const { streamActive, vehicleConnected, connectedVehicleId, speed, heading, fps, networkQuality, mode, statsAvailable, packetLoss, videoRoute, socketConnected, vehicles, webrtcStatus, perception } = useVehicleStore();
   useWebRTC(videoRef);
   const connectionState = !socketConnected ? 'Disconnected' : streamActive ? 'Streaming'
     : webrtcStatus === 'connecting' ? 'Video connecting' : vehicles.some((v) => v.ready && v.mode === 'carla')
       ? 'CARLA ready' : vehicles.length ? 'Sender connected' : 'Disconnected';
+  const selected = vehicles.find((vehicle) => vehicle.id === connectedVehicleId);
 
   return (
     <div className="ghost-panel relative flex-1 overflow-hidden scanlines">
@@ -56,6 +58,7 @@ export default function VideoFeed() {
             <p className="text-ghost-border text-[10px] font-mono mt-1">
               No live frames are being displayed
             </p>
+            {selected && <p className="text-ghost-muted text-xs mt-3 px-4" role="status">{senderStatus(selected)}</p>}
           </div>
 
 
@@ -63,6 +66,11 @@ export default function VideoFeed() {
       )}
 
       {streamActive && <span className="sr-only" role="status">Streaming</span>}
+      {streamActive && perception?.prediction?.method && perception.prediction.method !== 'off' && (
+        <div className="absolute top-14 left-3 right-3 text-center text-xs text-ghost-warning bg-black/70 rounded p-2">
+          Left: live camera · Right: estimated future view ({perception.prediction.method.toUpperCase()})
+        </div>
+      )}
 
       {/* HUD Overlays (always visible when vehicle connected or streaming) */}
       {(vehicleConnected || streamActive) && (

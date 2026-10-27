@@ -3,7 +3,7 @@
  */
 import React from 'react';
 
-export default function TelemetryCard({ label, value, unit, colorClass = 'text-ghost-accent', icon, subtext }) {
+export default function TelemetryCard({ label, value, unit, colorClass = 'text-ghost-accent', valueClassName = 'text-2xl', icon, subtext }) {
   return (
     <div className="ghost-panel ghost-panel-hover p-3 flex flex-col gap-1 animate-fade-in-up">
       <div className="flex items-center justify-between">
@@ -11,7 +11,7 @@ export default function TelemetryCard({ label, value, unit, colorClass = 'text-g
         {icon && <span className="text-ghost-muted opacity-60">{icon}</span>}
       </div>
       <div className="flex items-end gap-1.5">
-        <span className={`value-display text-2xl font-black leading-none ${colorClass}`}>
+        <span className={`value-display ${valueClassName} font-black leading-none ${colorClass}`}>
           {value}
         </span>
         {unit && (

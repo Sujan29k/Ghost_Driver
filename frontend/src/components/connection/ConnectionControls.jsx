@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { socket, request } from '../../services/socket';
 import useVehicleStore from '../../store/vehicleStore';
 import useConnection from '../../hooks/useConnection';
+import { senderStatus } from '../../utils/senderStatus';
 export default function ConnectionControls() {
   const state = useVehicleStore();
   const { connectVehicle, disconnectVehicle } = useConnection();
@@ -26,9 +27,10 @@ export default function ConnectionControls() {
     {state.socketConnected && <button className="btn-ghost" onClick={() => { socket.disconnect(); socket.auth = {}; }}>Lock dashboard</button>}
     {state.allowDemo && <button className="btn-ghost btn-accent" onClick={() => window.open('/vehicle-sim.html', '_blank')}>Open demo vehicle</button>}
     <p className="text-xs text-ghost-muted">Connect to your sender, then start video. Controls remain stopped until you resume.</p>
-    {!state.vehicles.length && <p className="text-sm text-ghost-muted">No vehicle available</p>}
+    {!state.vehicles.length && <><p className="text-sm text-ghost-muted">No vehicle available</p>
+      {state.socketConnected && <p className="text-xs text-ghost-muted">Keep your Mac’s tunnel running. Start CARLA and the Python bridge on the GPU computer using the current tunnel URL and sender token.</p>}</>}
     {state.vehicles.map((v) => <div key={v.id} className="border border-ghost-border p-2 rounded">
-      <p className="text-sm">{v.name}</p><p className="text-xs text-ghost-muted">{v.mode === 'mock' ? 'Synthetic demo' : 'CARLA camera'}{v.ready ? (v.mode === 'carla' ? ' · CARLA ready' : ' · Demo ready') : ' · Sender connected; waiting for camera'}{v.busy ? ' · In use' : ''}</p>
+      <p className="text-sm">{v.name}</p><p className="text-xs text-ghost-muted">{v.mode === 'mock' ? 'Synthetic demo' : 'CARLA camera'} · {senderStatus(v)}{v.busy ? ' · In use' : ''}</p>
       <button className="btn-ghost mt-2" disabled={pending || state.vehicleConnected || v.busy}
         onClick={() => run(() => connectVehicle(v.id))}>Connect</button>
     </div>)}

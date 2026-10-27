@@ -14,7 +14,7 @@ export default function useWebRTC(videoRef) {
       if (old) { old.onconnectionstatechange = null; old.ontrack = null; old.close(); }
       if (videoRef.current) videoRef.current.srcObject = null;
       patch({ streamActive: false, emergency: true, webrtcStatus: 'idle', sessionId: null,
-        fps: 0, packetLoss: 0, statsAvailable: false, videoRoute: 'Unknown' });
+        fps: 0, packetLoss: 0, videoRtt: null, statsAvailable: false, videoRoute: 'Unknown' });
     };
     const retry = () => {
       if (!socket.connected || !state().vehicleConnected || !state().videoWanted || retryCount >= 3) return;
@@ -90,6 +90,8 @@ export default function useWebRTC(videoRef) {
         reports.forEach((r) => { if (r.type === 'transport' && r.selectedCandidatePairId) pair = reports.get(r.selectedCandidatePairId); });
         if (!pair) reports.forEach((r) => { if (r.type === 'candidate-pair' && r.selected) pair = r; });
         const local = pair && reports.get(pair.localCandidateId), remote = pair && reports.get(pair.remoteCandidateId);
+        patch({ videoRtt: Number.isFinite(pair?.currentRoundTripTime) && pair.currentRoundTripTime >= 0
+          ? Math.round(pair.currentRoundTripTime * 1000) : null });
         patch({ videoRoute: local?.candidateType === 'relay' || remote?.candidateType === 'relay' ? 'TURN relay'
           : local?.candidateType && remote?.candidateType ? 'Direct' : 'Unknown' });
         reports.forEach((r) => {

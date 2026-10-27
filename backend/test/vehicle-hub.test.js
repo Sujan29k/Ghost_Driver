@@ -167,6 +167,21 @@ test('sender connected and camera ready are distinct; camera loss stops video', 
   assert.equal((await request(f.operator, 'stream:request', { vehicleId: f.provider.id })).success, false);
 });
 
+test('sender startup phases reach operators without forwarding arbitrary diagnostics', async (t) => {
+  const f = await fixture(t);
+  const loading = event(f.operator, 'vehicles:list', (list) => list[0]?.phase === 'loading-models');
+  f.provider.emit('vehicle:status', { ready: false, phase: 'loading-models', message: 'private-sender-token' });
+  const vehicles = await loading;
+  assert.equal(vehicles[0].ready, false);
+  assert.equal(JSON.stringify(vehicles).includes('private-sender-token'), false);
+  const unknown = event(f.operator, 'vehicles:list', (list) => list[0]?.phase === 'starting');
+  f.provider.emit('vehicle:status', { ready: false, phase: 'private-sender-token' });
+  assert.equal((await unknown)[0].phase, 'starting');
+  const ready = event(f.operator, 'vehicles:list', (list) => list[0]?.ready);
+  f.provider.emit('vehicle:status', { ready: true, phase: 'loading-models' });
+  assert.equal((await ready)[0].phase, 'ready');
+});
+
 test('configuration fails closed and passes TURN credentials to both roles', async (t) => {
   assert.throws(() => loadConfig({}), /TOKEN/);
   assert.throws(() => loadConfig({ DASHBOARD_TOKEN: 'a'.repeat(40), SENDER_TOKEN: 'a'.repeat(40) }), /different/);
@@ -189,4 +204,29 @@ test('missing receiver frame heartbeats closes video and latches brakes', async 
   await readyAndResume(f);
   assert.equal((await stopped).reason, 'Video frames timed out');
   assert.equal((await request(f.operator, 'control:resume')).success, false);
+});
+
+test('AI and actual traffic metrics reach the owner with bounded values', async (t) => {
+  const f = await fixture(t);
+  await request(f.operator, 'vehicle:connect', { vehicleId: f.provider.id });
+  const received = event(f.operator, 'telemetry:update');
+  f.provider.emit('vehicle:telemetry', { ...telemetry,
+    perception: { enabled: true, fresh: true, objects: 3, warning: true, flow: false, inferenceMs: 42.5,
+      prediction: { method: 'raft', ready: true, horizonMs: 250, inferenceMs: 20 } },
+    traffic: { vehicles: 12, bicycles: 2, pedestrians: 5 } });
+  const data = await received;
+  assert.equal(data.perception.objects, 3);
+  assert.equal(data.perception.inferenceMs, 42.5);
+  assert.deepEqual(data.perception.prediction, { method: 'raft', ready: true, horizonMs: 250, inferenceMs: 20 });
+  assert.equal(data.traffic.vehicles, 12);
+  const malformed = event(f.operator, 'telemetry:update');
+  f.provider.emit('vehicle:telemetry', { ...telemetry,
+    perception: { enabled: 'true', objects: -5, inferenceMs: 'fast',
+      prediction: { method: 'unknown', ready: true, horizonMs: 900, inferenceMs: -1 } }, traffic: { vehicles: 1e9 } });
+  const sanitized = await malformed;
+  assert.equal(sanitized.perception.enabled, false);
+  assert.equal(sanitized.perception.objects, 0);
+  assert.equal(sanitized.perception.inferenceMs, null);
+  assert.equal(sanitized.traffic.vehicles, 0);
+  assert.deepEqual(sanitized.perception.prediction, { method: 'off', ready: false, horizonMs: null, inferenceMs: null });
 });

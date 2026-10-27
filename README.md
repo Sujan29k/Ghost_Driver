@@ -13,6 +13,7 @@ flowchart LR
 
 Start here:
 
+- **[Quick start: Mac + friend's GPU computer](docs/QUICK_START.md)** — automatic token setup, saved full AI profile, and a sender package ready to transfer.
 - **[Steps to run on both computers](docs/STEPS_TO_RUN.md)** — complete numbered instructions, commands for Mac/Windows/Linux, parallel tasks, and everyday startup/shutdown.
 - **[Your laptop setup](docs/LAPTOP_SETUP.md)** — tokens, TURN, local website/backend, Cloudflare Tunnel.
 - **[Your friend's GPU computer setup](docs/FRIEND_SETUP.md)** — matching CARLA client, Python bridge, startup.
@@ -25,13 +26,15 @@ Each role has a separate connection token. Secrets live in ignored `.env` files,
 
 Controls start stopped. Video retries cannot resume driving. After a signaling reconnect, select the sender and start video again; use **Resume controls** only when deliberately testing driving. W/A/S/D and emergency stop (Space or the button) are preserved. Python and backend watchdogs brake after 750 ms without control updates; camera loss, stream loss, disconnects, and emergency stop latch the brakes. Focus loss clears held keys and sends braking commands. This remains simulator software; the CARLA bridge needs real-installation testing.
 
-There is no synthetic fallback for CARLA footage. The existing synthetic demo is disabled by default; `ALLOW_DEMO=true` explicitly enables it for local tests. It requires the sender token and is labeled **DEMO VIDEO** / **SYNTHETIC DEMO**. Research scripts under `carla-service/ghostdriver/` are separate from the live bridge. YOLO and prediction are not part of this video path.
+The live bridge uses the trained YOLO checkpoint from `sudip-work`, spawns cars, bicycles and pedestrians, and annotates the WebRTC video. RAFT-Small prediction is available with `--prediction raft`; the estimated view is labeled separately beside the live camera. See **[AI and traffic setup](docs/AI_TRAFFIC.md)** for the commands to run on both computers and the integration record. No extra frontend/backend is needed from the other branch.
+
+There is no synthetic fallback for CARLA footage. The existing synthetic demo is disabled by default; `ALLOW_DEMO=true` explicitly enables it for local tests. It requires the sender token and is labeled **DEMO VIDEO** / **SYNTHETIC DEMO**. Offline datasets and evaluation artifacts are not loaded by the live bridge.
 
 From the repository root, using Node 22.12+:
 
 ```sh
 npm run setup
-# Configure backend/.env first; see the laptop guide.
+npm run doctor
 npm run dev
 # Dashboard: http://localhost:5173
 ```
@@ -40,10 +43,13 @@ Validation commands:
 
 ```sh
 npm test
+npm run doctor
 npm run build
 npm run test:browser
 python3 -m unittest discover -s carla-service/tests -v
 python3 -m py_compile carla-service/bridge.py
+# With AI dependencies installed, no CARLA required:
+python carla-service/check_setup.py --models-only --prediction raft
 ```
 
 Browser tests use a separate server on port 4100 and the installed Chrome browser. They use test-only credentials and an explicitly labeled synthetic sender to exercise WebRTC reception and control behavior. They do not validate CARLA or internet/TURN connectivity. With the Python requirements installed, unittest also runs an optional real aiortc/Socket.IO integration test using only a stubbed CARLA API and in-memory test frames; otherwise that test is explicitly skipped. See the connection test guide for checks requiring the two computers.
