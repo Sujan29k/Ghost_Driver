@@ -60,3 +60,4 @@ frontend/playwright-report/
 # Local connection notes containing credentials.
 /file.txt
 /artifacts/
+/carla-service/recordings/

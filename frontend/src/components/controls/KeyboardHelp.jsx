@@ -8,6 +8,7 @@ const BINDINGS = [
   { keys: ['S'],     action: 'Brake',          color: 'text-ghost-warning' },
   { keys: ['A'],     action: 'Turn Left',       color: 'text-ghost-accent' },
   { keys: ['D'],     action: 'Turn Right',      color: 'text-ghost-accent' },
+  { keys: ['R'],     action: 'Toggle Forward / Reverse (stopped)' , color: 'text-ghost-warning' },
   { keys: ['SPACE'], action: 'Emergency Stop',  color: 'text-ghost-danger' },
 ];
 

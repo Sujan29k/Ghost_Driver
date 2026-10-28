@@ -1,0 +1,42 @@
+{
+  "name": "landslide",
+  "map": "current CARLA map",
+  "route": "straight",
+  "egoSpawn": "first free CARLA spawn point",
+  "hazard": "collision props partially or fully across route about 36 m ahead",
+  "weather": {
+    "cloudiness": 10,
+    "precipitation": 0,
+    "wetness": 0,
+    "fog_density": 0,
+    "sun_altitude_angle": 65
+  },
+  "physicalEffects": {
+    "collisionEnabled": true
+  },
+  "traffic": {
+    "cars": 30,
+    "bicycles": 5,
+    "pedestrians": 20
+  },
+  "seed": 2026,
+  "takeover": {
+    "trigger": "scripted hazard zone or obstacle sensor",
+    "expected": "stop; partial layout may allow manual steering/reversing; full blockage may remain impassable"
+  },
+  "requiredAssets": [
+    "static.prop.rock/stone/debris if available"
+  ],
+  "fallback": "clearly labelled stationary four-wheel vehicle roadblock; validate actual collision and passability",
+  "commandExample": {
+    "action": "scenario",
+    "data": {
+      "operation": "start",
+      "name": "landslide",
+      "severity": 1,
+      "seed": 2026,
+      "blockage": "partial"
+    }
+  },
+  "configurationNote": "Descriptive preset and authenticated command example. Runtime logs contain resolved coordinates, actual assets/counts and policy. No deterministic async replay claim."
+}

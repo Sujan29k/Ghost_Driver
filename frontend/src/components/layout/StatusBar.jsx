@@ -28,8 +28,9 @@ function ServiceBadge({ name, status }) {
 }
 
 export default function StatusBar() {
-  const { carlaStatus, webrtcStatus, perception, streamActive, networkQuality, packetLoss, statsAvailable } = useVehicleStore();
+  const { carlaStatus, webrtcStatus, perception, streamActive, networkQuality, packetLoss, statsAvailable, researchVersion, research, comparison } = useVehicleStore();
   const aiActive = streamActive && perception?.enabled && perception?.fresh;
+  const predictionActive = streamActive && (researchVersion ? comparison?.status === 'ready' && comparison?.predictionReady : aiActive && perception?.prediction?.ready);
   const netInfo = formatNetworkQuality(networkQuality);
 
   const bars = [
@@ -49,12 +50,13 @@ export default function StatusBar() {
         <ServiceBadge name="WebRTC"   status={webrtcStatus} />
         <ServiceBadge name="YOLO"     status={aiActive ? 'active' : 'idle'} />
         <ServiceBadge name="Motion" status={aiActive && perception?.flow ? 'active' : 'idle'} />
-        <ServiceBadge name="Prediction" status={aiActive && perception?.prediction?.ready ? 'active' : 'idle'} />
+        <ServiceBadge name="Prediction" status={predictionActive ? 'active' : 'idle'} />
       </div>
 
       {/* Center label */}
       <div className="text-[10px] font-mono text-ghost-muted tracking-widest uppercase">
-        {aiActive ? 'Live YOLO detections · Manual driving' : 'Live camera · Manual driving'}
+        {researchVersion ? `${comparison?.view || 'Waiting for video'} · ${(research?.mode || 'STOPPED').replaceAll('_', ' ')}`
+          : aiActive ? 'Live YOLO detections · Manual driving' : 'Live camera · Manual driving'}
       </div>
 
       {/* Network quality */}

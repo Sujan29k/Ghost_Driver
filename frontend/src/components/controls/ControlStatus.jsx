@@ -5,7 +5,7 @@ import React from 'react';
 import useVehicleStore from '../../store/vehicleStore';
 
 export default function ControlStatus() {
-  const { activeKeys, streamActive, emergency } = useVehicleStore();
+  const { activeKeys, streamActive, emergency, researchVersion, research, researchPending } = useVehicleStore();
 
   const keys = [
     { key: 'w', label: 'W', action: 'THROTTLE', top: 0, left: 1 },
@@ -14,7 +14,7 @@ export default function ControlStatus() {
     { key: 'd', label: 'D', action: 'RIGHT',    top: 1, left: 2 },
   ];
 
-  const vehicleConnected = streamActive && !emergency;
+  const vehicleConnected = streamActive && !emergency && (!researchVersion || (research?.mode === 'MANUAL' && !researchPending));
   const spaceActive = activeKeys.has(' ');
 
   return (
@@ -53,7 +53,7 @@ export default function ControlStatus() {
 
       {!vehicleConnected && (
         <p className="text-[10px] text-ghost-muted font-mono text-center">
-          Start video and resume controls to drive
+          {researchVersion ? 'Receive video and take manual control to use W/A/S/D' : 'Start video and resume controls to drive'}
         </p>
       )}
     </div>

@@ -84,6 +84,23 @@ class PredictionView:
             cv2.cvtColor(previous, cv2.COLOR_BGR2GRAY), None,
             0.5, 3, 15, 3, 5, 1.2, 0)
 
+    def predict_pair(self, previous, current, interval, horizon_ms):
+        cv2, np = self.cv2, self.np
+        if previous.shape != current.shape or not 0 < interval <= 1 or not 0 <= horizon_ms <= 2000:
+            raise ValueError('Invalid timestamped prediction pair')
+        if horizon_ms == 0:
+            return current.copy()
+        flow = self.flow(previous, current)
+        if not np.isfinite(flow).all():
+            raise RuntimeError('Motion model returned non-finite flow')
+        displacement = flow * (horizon_ms / 1000 / interval) * 0.7
+        magnitude = np.linalg.norm(displacement, axis=2, keepdims=True)
+        displacement *= np.minimum(1.0, 80 / np.maximum(magnitude, 1e-6))
+        height, width = current.shape[:2]
+        gx, gy = np.meshgrid(np.arange(width, dtype=np.float32), np.arange(height, dtype=np.float32))
+        return cv2.remap(current, gx + displacement[..., 0], gy + displacement[..., 1],
+                         cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+
     def process(self, current, timestamp):
         cv2, np = self.cv2, self.np
         started = time.monotonic()

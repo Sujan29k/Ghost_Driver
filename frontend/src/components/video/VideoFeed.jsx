@@ -10,7 +10,7 @@ import { senderStatus } from '../../utils/senderStatus';
 
 export default function VideoFeed() {
   const videoRef = useRef(null);
-  const { streamActive, vehicleConnected, connectedVehicleId, speed, heading, fps, networkQuality, mode, statsAvailable, packetLoss, videoRoute, socketConnected, vehicles, webrtcStatus, perception } = useVehicleStore();
+  const { streamActive, vehicleConnected, connectedVehicleId, speed, heading, fps, networkQuality, mode, statsAvailable, packetLoss, videoRoute, socketConnected, vehicles, webrtcStatus, perception, comparison, research } = useVehicleStore();
   useWebRTC(videoRef);
   const connectionState = !socketConnected ? 'Disconnected' : streamActive ? 'Streaming'
     : webrtcStatus === 'connecting' ? 'Video connecting' : vehicles.some((v) => v.ready && v.mode === 'carla')
@@ -66,12 +66,20 @@ export default function VideoFeed() {
       )}
 
       {streamActive && <span className="sr-only" role="status">Streaming</span>}
-      {streamActive && perception?.prediction?.method && perception.prediction.method !== 'off' && (
+      {streamActive && !comparison && perception?.prediction?.method && perception.prediction.method !== 'off' && (
         <div className="absolute top-14 left-3 right-3 text-center text-xs text-ghost-warning bg-black/70 rounded p-2">
           Left: live camera · Right: estimated future view ({perception.prediction.method.toUpperCase()})
         </div>
       )}
 
+      {comparison && <div className="absolute top-14 left-3 right-3 text-center text-xs bg-black/80 rounded p-2 text-ghost-warning" role="status">
+        {comparison.view === 'compare' ? 'Left: DELAYED — NO PREDICTION · Right: PREDICTED — LATENCY COMPENSATION' : `View: ${comparison.view.toUpperCase()}`}
+        <br />Injected {comparison.delayMs} ms · Horizon {comparison.horizonMs == null ? '—' : Math.round(comparison.horizonMs)} ms · {comparison.status} · Estimate: {comparison.predictionStatus || 'off'}
+        {(comparison.reference || comparison.view === 'reference') && <p>Reference: newest at sender; transmission delay still applies.</p>}
+      </div>}
+      {research?.mode === 'TAKEOVER_REQUESTED' && <div role="alert" className="absolute inset-x-3 bottom-24 bg-red-950 border border-red-400 p-4 text-white text-center">
+        TAKEOVER REQUESTED — {research.takeover?.reason}<br />{research.takeover?.source} trigger · Braking until you select Take manual control.
+      </div>}
       {/* HUD Overlays (always visible when vehicle connected or streaming) */}
       {(vehicleConnected || streamActive) && (
         <>
@@ -79,7 +87,7 @@ export default function VideoFeed() {
           <div className="absolute top-3 left-3 flex items-center gap-2 px-2.5 py-1.5 rounded bg-black/60 backdrop-blur-sm border border-ghost-border">
             <div className={`w-2 h-2 rounded-full ${streamActive ? 'bg-ghost-success animate-pulse' : 'bg-ghost-warning animate-pulse'}`} />
             <span className="text-[11px] font-mono tracking-widest text-ghost-text">
-              <span>{streamActive ? (mode === 'mock' ? 'DEMO VIDEO' : 'LIVE CARLA VIDEO') : 'STANDBY'}</span>
+              <span>{streamActive ? (mode === 'mock' ? 'DEMO VIDEO' : comparison ? 'CARLA RESEARCH VIDEO' : 'LIVE CARLA VIDEO') : 'STANDBY'}</span>
               {streamActive && <span className="ml-2 text-ghost-success normal-case">Streaming</span>}
             </span>
           </div>

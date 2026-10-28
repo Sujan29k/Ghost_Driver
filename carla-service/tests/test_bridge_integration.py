@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import sys
 import threading
+import tempfile
 import time
 from types import SimpleNamespace
 import unittest
@@ -28,31 +29,55 @@ class FakeCarla:
         self.paused = False
         self.vehicle_destroyed = self.camera_destroyed = False
         self.camera_stop = threading.Event()
-        self.control = SimpleNamespace(throttle=0, brake=1, steer=0, gear=0)
-        self.vehicle = SimpleNamespace(id=1, set_autopilot=lambda _: None,
+        self.autopilot = False
+        self.applied = 0
+        self.location = SimpleNamespace(x=0, y=0, z=0)
+        self.control = SimpleNamespace(throttle=0, brake=1, steer=0, gear=0, reverse=False)
+        self.vehicle = SimpleNamespace(id=1, set_autopilot=lambda enabled, *_: setattr(self, 'autopilot', enabled),
+            get_velocity=lambda: SimpleNamespace(x=0, y=0, z=0), get_location=lambda: self.location,
+            is_at_traffic_light=lambda: False,
             apply_control=self.apply, get_control=lambda: self.control,
             destroy=lambda: setattr(self, 'vehicle_destroyed', True))
         self.camera = SimpleNamespace(listen=self.listen, stop=self.camera_stop.set,
             destroy=lambda: setattr(self, 'camera_destroyed', True))
-        blueprint = SimpleNamespace(set_attribute=lambda *_: None)
+        blueprint = lambda name: SimpleNamespace(id=name, set_attribute=lambda *_: None)
+        def waypoint(x=0):
+            return SimpleNamespace(road_id=1, section_id=0, lane_id=1, s=x, lane_width=3.5,
+                transform=SimpleNamespace(location=SimpleNamespace(x=x, y=0, z=0), rotation=SimpleNamespace(yaw=0)),
+                next=lambda step: [waypoint(x + step)])
+        self.weather = SimpleNamespace(cloudiness=0, precipitation=0, precipitation_deposits=0, wetness=0,
+                                       fog_density=0, sun_altitude_angle=60)
+        self.sensors = []
+        def spawn(bp, *_args, **_kwargs):
+            if bp.id == 'sensor.camera.rgb':
+                return self.camera
+            sensor = SimpleNamespace(id=len(self.sensors) + 3, is_alive=True, listen=lambda _: None,
+                stop=lambda: None)
+            sensor.destroy = lambda: setattr(sensor, 'is_alive', False)
+            self.sensors.append(sensor)
+            return sensor
         actor = SimpleNamespace(get_velocity=lambda: SimpleNamespace(x=0, y=0, z=0),
             get_transform=lambda: SimpleNamespace(rotation=SimpleNamespace(yaw=0)))
         world = SimpleNamespace(
             wait_for_tick=lambda _: None,
             get_settings=lambda: SimpleNamespace(synchronous_mode=False),
-            get_blueprint_library=lambda: SimpleNamespace(filter=lambda _: [blueprint], find=lambda _: blueprint),
-            get_map=lambda: SimpleNamespace(get_spawn_points=lambda: [None]),
-            try_spawn_actor=lambda *_: self.vehicle, spawn_actor=lambda *_, **__: self.camera,
+            get_blueprint_library=lambda: SimpleNamespace(filter=lambda name: [blueprint(name)], find=blueprint),
+            get_map=lambda: SimpleNamespace(name='FixtureMap', get_spawn_points=lambda: [None], get_waypoint=lambda loc: waypoint(loc.x)),
+            get_weather=lambda: SimpleNamespace(**vars(self.weather)), set_weather=lambda value: setattr(self, 'weather', value),
+            try_spawn_actor=lambda *_: self.vehicle, spawn_actor=spawn,
             get_snapshot=lambda: SimpleNamespace(find=lambda _: actor, frame=self.frame,
                 timestamp=SimpleNamespace(elapsed_seconds=self.frame / 30)))
-        self.Client = lambda *_: SimpleNamespace(set_timeout=lambda _: None,
-            get_client_version=lambda: 'test-only', get_server_version=lambda: 'test-only', get_world=lambda: world)
-        self.VehicleControl = lambda **kw: SimpleNamespace(gear=0, **kw)
+        tm = SimpleNamespace(set_path=lambda *_: None, auto_lane_change=lambda *_: None,
+            vehicle_percentage_speed_difference=lambda *_: None, distance_to_leading_vehicle=lambda *_: None)
+        self.Client = lambda *_: SimpleNamespace(set_timeout=lambda _: None, get_trafficmanager=lambda _: tm,
+            get_client_version=lambda: '0.9.15', get_server_version=lambda: '0.9.15', get_world=lambda: world)
+        self.VehicleControl = lambda **kw: SimpleNamespace(**{**dict(throttle=0, brake=0, steer=0, reverse=False, gear=-1 if kw.get('reverse') else 1), **kw})
         self.Transform = lambda *_: None
-        self.Location = lambda **_: None
+        self.Location = lambda **kw: SimpleNamespace(**{**dict(x=0, y=0, z=0), **kw})
 
     def apply(self, value):
         self.control = value
+        self.applied += 1
 
     def listen(self, callback):
         def produce():
@@ -79,7 +104,10 @@ class BridgeIntegrationTest(unittest.IsolatedAsyncioTestCase):
     async def test_stalled_inference_stops_video_while_camera_is_alive(self):
         await self.exercise_bridge(True, stall_inference=True)
 
-    async def exercise_bridge(self, ai, stall_inference=False):
+    async def test_research_reverse_autonomy_scenario_takeover_and_camera_loss(self):
+        await self.exercise_bridge(True, research_mode=True)
+
+    async def exercise_bridge(self, ai, stall_inference=False, research_mode=False):
         import bridge
         root = Path(__file__).resolve().parents[2]
         env = {**os.environ, 'DASHBOARD_TOKEN': 'integration-dashboard-token-0000000000',
@@ -101,6 +129,13 @@ class BridgeIntegrationTest(unittest.IsolatedAsyncioTestCase):
         candidates = []
         stall = threading.Event()
         release_inference = threading.Event()
+        recording_dir = tempfile.TemporaryDirectory()
+        telemetry = {}
+        heartbeat = None
+
+        @operator.on('telemetry:update')
+        async def observed(data):
+            telemetry.update(data)
 
         @operator.on('vehicles:list')
         async def discovered(data):
@@ -142,12 +177,17 @@ class BridgeIntegrationTest(unittest.IsolatedAsyncioTestCase):
             args = SimpleNamespace(backend=url, token=env['SENDER_TOKEN'], host='127.0.0.1', port=2000,
                 name='CARLA API fixture (test only)', vehicle='test', width=64, height=48,
                 ai='yolo' if ai else 'off', weights='fixture', device='cpu', confidence=0.4, optical_flow=True)
+            if research_mode:
+                args.research = True
+                args.video_delay, args.prediction, args.view, args.show_reference = 200, 'farneback', 'compare', False
+                args.raft_weights, args.record_dir = 'fixture', recording_dir.name
+                args.tm_port, args.seed, args.direction_speed_limit = 8000, 2026, 1
             # Stub only inference here; test the real dedicated worker, frame
             # freshness, doubled output size and aiortc encode/decode path.
             def process(pixels, timestamp=None):
                 if stall.is_set():
                     release_inference.wait(10)
-                return np.hstack([pixels, pixels]), {
+                return (pixels.copy() if research_mode else np.hstack([pixels, pixels])), {
                     'enabled': True, 'objects': 2, 'inferenceMs': 1, 'flow': True, 'warning': False}
             processor = SimpleNamespace(process=process)
             with patch.dict(sys.modules, {'carla': fake}), patch('perception.Perception', return_value=processor):
@@ -172,14 +212,51 @@ class BridgeIntegrationTest(unittest.IsolatedAsyncioTestCase):
                 second = await asyncio.wait_for(frames.get(), 5)
                 self.assertEqual((first.width, first.height), (128 if ai else 64, 48))
                 self.assertGreater(second.pts, first.pts)
-                pixel = first.to_ndarray(format='bgr24')[20, 20]
+                pixel = first.to_ndarray(format='bgr24')[46, 50]
                 self.assertGreater(int(pixel[2]), 200)
                 self.assertLess(int(pixel[0]), 30)
                 await operator.emit('stream:ready', {'sessionId': started['sessionId']})
+                await asyncio.sleep(.3)
                 self.assertTrue((await operator.call('control:resume', {}))['success'])
                 self.assertTrue((await operator.call('control:direct', {'sequence': 1, 'throttle': 1, 'brake': 0, 'steer': 0}))['success'])
                 await asyncio.sleep(0.1)
                 self.assertEqual(fake.control.throttle, 1)
+                if research_mode:
+                    async def supervision():
+                        while True:
+                            await asyncio.sleep(.15)
+                            await operator.emit('stream:ready', {'sessionId': started['sessionId']})
+                    heartbeat = asyncio.create_task(supervision())
+                    async def command(action, data):
+                        result = await operator.call('research:command', {'action': action, 'data': data}, timeout=10)
+                        self.assertTrue(result['success'], result)
+                        return result['state']
+                    await command('direction', {'direction': 'reverse'})
+                    await command('mode', {'mode': 'MANUAL'})
+                    await operator.call('control:direct', {'sequence': 2, 'throttle': 1, 'brake': 0, 'steer': 0})
+                    await asyncio.sleep(.1)
+                    self.assertTrue(fake.control.reverse)
+                    self.assertEqual(fake.control.throttle, 1)
+                    await command('direction', {'direction': 'forward'})
+                    await command('mode', {'mode': 'AUTONOMOUS'})
+                    self.assertTrue(fake.autopilot)
+                    count = fake.applied
+                    await asyncio.sleep(.25)
+                    self.assertEqual(fake.applied, count, 'Manual loop overwrote Traffic Manager')
+                    await command('trial', {'operation': 'start', 'label': 'fixture-only', 'saveFrames': True, 'order': 1})
+                    state = await command('scenario', {'operation': 'start', 'name': 'rain', 'severity': 3, 'seed': 2026, 'blockage': 'partial'})
+                    self.assertEqual(state['mode'], 'AUTONOMOUS')
+                    deadline = time.monotonic() + 4
+                    while telemetry.get('research', {}).get('mode') != 'TAKEOVER_REQUESTED':
+                        self.assertLess(time.monotonic(), deadline, telemetry)
+                        await asyncio.sleep(.05)
+                    self.assertFalse(fake.autopilot)
+                    self.assertEqual(fake.control.brake, 1)
+                    self.assertEqual(telemetry['research']['takeover']['source'], 'scripted')
+                    await command('mode', {'mode': 'MANUAL'})
+                    await command('scenario', {'operation': 'reset', 'name': 'none', 'severity': 1, 'seed': 2026, 'blockage': 'partial'})
+                    await command('mode', {'mode': 'AUTONOMOUS'})
+                    self.assertTrue(fake.autopilot)
                 if stall_inference:
                     stall.set()
                 else:
@@ -187,7 +264,13 @@ class BridgeIntegrationTest(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual((await asyncio.wait_for(stops.get(), 5))['reason'], 'CARLA camera unavailable')
                 await asyncio.sleep(0.1)
                 self.assertEqual(fake.control.brake, 1)
+                if research_mode:
+                    self.assertFalse(fake.autopilot)
         finally:
+            if heartbeat:
+                heartbeat.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await heartbeat
             release_inference.set()
             if task:
                 task.cancel()
@@ -198,6 +281,7 @@ class BridgeIntegrationTest(unittest.IsolatedAsyncioTestCase):
             if server.returncode is None:
                 server.terminate()
             await asyncio.wait_for(server.wait(), 5)
+            recording_dir.cleanup()
         self.assertTrue(fake.vehicle_destroyed)
         self.assertTrue(fake.camera_destroyed)
 

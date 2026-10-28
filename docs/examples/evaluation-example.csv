@@ -1,0 +1,2 @@
+trialId,label,trialOrder,pairedSamples,delayedOnlySamples,pairedDelayedMAE,pairedPredictedMAE,predictionWorseCases,alignmentErrors,collisions,dropped
+20261028T060701Z-5295071c,Synthetic format example only,1,1,0,1.0,2.0,1,0,0,0

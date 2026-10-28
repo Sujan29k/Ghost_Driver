@@ -8,6 +8,7 @@ import VideoFeed from './components/video/VideoFeed';
 import TelemetryPanel from './components/telemetry/TelemetryPanel';
 import ControlStatus from './components/controls/ControlStatus';
 import KeyboardHelp from './components/controls/KeyboardHelp';
+import ResearchPanel from './components/research/ResearchPanel';
 import ConnectionControls from './components/connection/ConnectionControls';
 
 // Global hooks (top-level, run once)
@@ -30,6 +31,7 @@ export default function App() {
         {/* LEFT SIDEBAR — Connection + Controls */}
         <aside className="flex flex-col gap-3 w-56 flex-shrink-0 overflow-y-auto">
           <ConnectionControls />
+          <ResearchPanel />
           <ControlStatus />
           <KeyboardHelp />
           {/* Ghost gradient bottom fill */}

@@ -72,7 +72,7 @@ function ControlInputBar({ label, value, colorClass, invert = false }) {
 }
 
 export default function TelemetryPanel() {
-  const { speed, fps, latency, packetLoss, videoRtt, videoRoute, networkQuality, throttle, brake, steer, gear, heading, statsAvailable, perception, traffic, streamActive } = useVehicleStore();
+  const { speed, fps, latency, packetLoss, videoRtt, videoRoute, networkQuality, throttle, brake, steer, gear, heading, statsAvailable, perception, traffic, streamActive, comparison, research, emergency } = useVehicleStore();
   const aiActive = streamActive && perception?.enabled && perception?.fresh;
 
   const latInfo = formatLatency(latency);
@@ -88,19 +88,32 @@ export default function TelemetryPanel() {
         <span className="font-mono text-ghost-accent">Scene and perception</span>
         <span>Spawned cars: {traffic?.vehicles ?? '—'} · Bikes: {traffic?.bicycles ?? '—'}</span>
         <span>Pedestrians: {traffic?.pedestrians ?? '—'}</span>
-        <span>YOLO: {aiActive ? 'Processing live frames' : 'Inactive'}</span>
+        <span>YOLO: {aiActive ? (comparison ? 'Processing delayed observations' : 'Processing live frames') : 'Inactive'}</span>
         <span>Road objects in frame: {aiActive ? perception.objects : '—'}</span>
         <span>Processing: {aiActive && perception.inferenceMs != null ? `${Math.round(perception.inferenceMs)} ms` : '—'}</span>
-        <span>Prediction: {aiActive && perception.prediction?.method !== 'off' && perception.prediction?.method
+        <span>Prediction: {comparison ? `${comparison.method.toUpperCase()} · ${comparison.predictionStatus || comparison.status}` : aiActive && perception.prediction?.method !== 'off' && perception.prediction?.method
           ? `${perception.prediction.method.toUpperCase()} · ${perception.prediction.ready ? `+${perception.prediction.horizonMs} ms estimate` : 'Buffering'}` : 'Off'}</span>
         {aiActive && perception.warning && <span className="text-ghost-warning">Large object in view. Advisory only; use the driving controls to brake.</span>}
         <span className="text-ghost-muted">Spawned actors may be outside the camera view.</span>
       </div>
 
+      {research && <div className="ghost-panel p-3 text-xs flex flex-col gap-2">
+        <b>Research telemetry</b>
+        <span>Mode: {research.mode} · {research.direction}</span>
+        <span>Stop latch: {emergency ? 'Active' : 'Released'}</span>
+        <span>Route: {research.route?.name || 'Not selected'} · {Math.round(research.route?.progress || 0)} m progress</span>
+        <span>Injected delay: {comparison?.delayMs ?? '—'} ms</span>
+        <span>Prediction horizon: {comparison?.horizonMs == null ? '—' : Math.round(comparison.horizonMs)} ms</span>
+        <span>Prediction compute: {comparison?.predictionMs == null ? '—' : Math.round(comparison.predictionMs)} ms</span>
+        <span>Total processing: {comparison?.processingMs == null ? '—' : Math.round(comparison.processingMs)} ms</span>
+        <span>Camera-to-display delay: not measured</span>
+        <span>Recording: {research.trial?.active ? research.trial.id : 'Off'} · dropped records {research.trial?.dropped || 0}</span>
+        {research.trial?.error && <span role="alert">Recording error: {research.trial.error}</span>}
+      </div>}
       {/* Key Metrics */}
       <div className="grid grid-cols-2 gap-2">
-        <TelemetryCard label="Video RTT" value={videoRtt == null ? '—' : `${videoRtt} ms`}
-          colorClass="text-ghost-accent" subtext="Browser ↔ sender" />
+        <TelemetryCard label="WebRTC RTT" value={videoRtt == null ? '—' : `${videoRtt} ms`}
+          colorClass="text-ghost-accent" subtext="Peer round trip" />
         <TelemetryCard label="Video route" value={videoRoute} colorClass="text-ghost-text" valueClassName="text-base"
           subtext="Selected WebRTC path" />
         <TelemetryCard

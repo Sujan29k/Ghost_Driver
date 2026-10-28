@@ -1,0 +1,61 @@
+{
+  "name": "rain",
+  "map": "current CARLA map",
+  "route": "straight",
+  "egoSpawn": "first free CARLA spawn point",
+  "hazard": "scripted zone at route waypoint about 36 m ahead",
+  "weather": {
+    "cloudiness": 90,
+    "precipitation_by_severity": [
+      35,
+      65,
+      95
+    ],
+    "wetness": 100,
+    "puddles": 60,
+    "fog_density_by_severity": [
+      10,
+      30,
+      60
+    ],
+    "sun_altitude_angle": 15
+  },
+  "physicalEffects": {
+    "static.trigger.friction": [
+      0.8,
+      0.5,
+      0.3
+    ],
+    "extent_cm": [
+      800,
+      500,
+      200
+    ]
+  },
+  "traffic": {
+    "cars": 30,
+    "bicycles": 5,
+    "pedestrians": 20
+  },
+  "seed": 2026,
+  "takeover": {
+    "trigger": "scripted severe-weather threshold; scripted hazard zone",
+    "expected": "vehicle stops and requests operator"
+  },
+  "requiredAssets": [
+    "stock weather fields",
+    "static.trigger.friction"
+  ],
+  "fallback": "sender rejects the scenario if the friction trigger blueprint is missing",
+  "commandExample": {
+    "action": "scenario",
+    "data": {
+      "operation": "start",
+      "name": "rain",
+      "severity": 3,
+      "seed": 2026,
+      "blockage": "partial"
+    }
+  },
+  "configurationNote": "Descriptive preset and authenticated command example. Runtime logs contain resolved coordinates, actual assets/counts and policy. No deterministic async replay claim."
+}

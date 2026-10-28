@@ -230,3 +230,53 @@ test('AI and actual traffic metrics reach the owner with bounded values', async 
   assert.equal(sanitized.traffic.vehicles, 0);
   assert.deepEqual(sanitized.perception.prediction, { method: 'off', ready: false, horizonMs: null, inferenceMs: null });
 });
+
+test('research mode changes await sender acknowledgement and enforce exclusive authority', async (t) => {
+  const app = createServer({ config });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${app.server.address().port}`;
+  const clients = [];
+  t.after(async () => { clients.forEach((s) => s.disconnect()); await app.close(); });
+  const connect = async role => {
+    const s = io(url, { autoConnect: false, auth: { role, token: config.tokens[role] }, transports: ['websocket'], forceNew: true });
+    clients.push(s); const ready = event(s, 'connect'); s.connect(); await ready; return s;
+  };
+  const sender = await connect('sender'), dashboard = await connect('dashboard');
+  await request(sender, 'vehicle:join', { name: 'CARLA research', mode: 'carla', researchVersion: 1 });
+  sender.emit('vehicle:status', { ready: true });
+  await request(dashboard, 'vehicle:connect', { vehicleId: sender.id });
+  const start = event(sender, 'stream:start');
+  const stream = await request(dashboard, 'stream:request', { vehicleId: sender.id });
+  await start; dashboard.emit('stream:ready', { sessionId: stream.sessionId });
+  const acknowledged = [];
+  sender.on('research:apply', (requestData, ack) => {
+    acknowledged.push(requestData.action);
+    const state = { version: 1, commandId: requestData.commandId, generation: requestData.commandId, mode: requestData.action === 'mode' ? requestData.data.mode : 'MANUAL',
+      stopped: requestData.action === 'mode' ? requestData.data.mode === 'STOPPED' : false,
+      direction: requestData.action === 'direction' ? requestData.data.direction : 'forward',
+      reason: 'test acknowledgement', takeover: null, route: {}, scenario: {}, video: {}, policy: {}, trial: {} };
+    // A sender may publish telemetry before its command acknowledgement arrives.
+    sender.emit('vehicle:telemetry', { ...telemetry, research: state });
+    setTimeout(() => ack({ success: true, state }), 80);
+  });
+  const pendingTelemetry = event(dashboard, 'telemetry:update');
+  const autoRequest = request(dashboard, 'research:command', { action: 'mode', data: { mode: 'AUTONOMOUS' } });
+  assert.notEqual((await pendingTelemetry).research?.mode, 'AUTONOMOUS');
+  const auto = await autoRequest;
+  assert.equal(auto.state.mode, 'AUTONOMOUS');
+  assert.equal((await request(dashboard, 'control:direct', { sequence: 1, throttle: 1, brake: 0, steer: 0 })).success, false);
+  const manual = await request(dashboard, 'research:command', { action: 'mode', data: { mode: 'MANUAL' } });
+  assert.equal(manual.state.mode, 'MANUAL');
+  assert.equal((await request(dashboard, 'control:direct', { sequence: 2, throttle: 1, brake: 0, steer: 0 })).success, true);
+  const stop = event(sender, 'control:apply', data => data.emergency);
+  await request(dashboard, 'control:emergency');
+  assert.equal((await stop).brake, 1);
+  assert.equal((await request(dashboard, 'control:direct', { sequence: 3, throttle: 1, brake: 0, steer: 0 })).success, false);
+  assert.deepEqual(acknowledged, ['mode', 'mode']);
+  const pending = event(sender, 'research:apply');
+  const cancelled = request(dashboard, 'research:command', { action: 'mode', data: { mode: 'AUTONOMOUS' } });
+  await pending;
+  await request(dashboard, 'control:emergency');
+  assert.equal((await cancelled).success, false, 'Late acknowledgement must not undo an emergency stop');
+  assert.equal((await request(dashboard, 'control:direct', { sequence: 4, throttle: 1, brake: 0, steer: 0 })).success, false);
+});

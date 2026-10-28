@@ -1,5 +1,7 @@
 # CARLA sender
 
+For the current reverse, autonomy, scenario and comparison workflow, use [the research startup checklist](../docs/TWO_COMPUTER_TEST.md) and [personal setup/training guide](../docs/PERSONAL_SETUP_AND_TRAINING.md). The default research profile requires CARLA 0.9.15; `--no-research` retains the legacy single/live-plus-estimate mode.
+
 Use **[the GPU computer setup guide](../docs/FRIEND_SETUP.md)** for installation, matching the CARLA Python client, configuration, and startup commands.
 
 The shorter [Mac + GPU quick start](../docs/QUICK_START.md) includes the transferable

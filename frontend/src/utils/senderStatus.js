@@ -5,6 +5,7 @@ const labels = {
   'spawning-traffic': 'Spawning cars, bicycles and pedestrians',
   'waiting-camera': 'Waiting for the first processed camera frame',
   'camera-unavailable': 'Camera or AI frames stopped; controls stopped',
+  'buffering-video': 'Camera active · Buffering comparison video; controls stopped',
   error: 'Sender setup failed; check the GPU computer’s bridge logs',
 };
 

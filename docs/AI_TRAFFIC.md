@@ -1,5 +1,7 @@
 # Run traffic, YOLO and RAFT with your existing dashboard
 
+**Research profile update:** The default sender now uses the delayed-versus-predicted comparison, explicit driving modes, and scenario controls. Follow [TWO_COMPUTER_TEST.md](TWO_COMPUTER_TEST.md). Live-plus-future and optical-flow descriptions below refer to the legacy `--no-research` profile.
+
 The integration uses `sudip-work` commit `00d414e` (fetched October 25, 2026).
 The older `6f4b7c5` version was already merged into main; the newer AI work was
 adapted selectively because its web stack uses a different protocol.

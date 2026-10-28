@@ -8,6 +8,7 @@ from pathlib import Path
 from fractions import Fraction
 from urllib.parse import urlparse
 import threading
+import queue
 import time
 from control_state import ControlState
 from perception import DEFAULT_WEIGHTS
@@ -33,13 +34,23 @@ async def run(args):
     worker = None
     perception_worker = None
     scene = None
+    research = None
+    operation_worker = None
+    operations = queue.Queue(maxsize=8)
+    event_loop = asyncio.get_running_loop()
+    research_enabled = getattr(args, "research", False)
+    pipeline = None
     perception = None
     ai_enabled = getattr(args, 'ai', 'off') == 'yolo'
+    if research_enabled and ai_enabled:
+        from comparison import ComparisonPipeline
+        pipeline = ComparisonPipeline(args.device, args.raft_weights, args.video_delay,
+                                      args.prediction, args.view, args.show_reference)
     quit_event = threading.Event()
     controls = ControlState()
     image_lock = threading.Lock()
     latest = {'image': None, 'image_at': 0, 'output': None, 'output_at': 0,
-              'output_frame': None, 'ai': {'enabled': False},
+              'output_frame': None, 'ai': {'enabled': False}, 'comparison': None,
               'telemetry': None, 'telemetry_at': 0, 'error': None, 'phase': 'starting'}
     ice_servers = []
     status_task = None
@@ -71,6 +82,8 @@ async def run(args):
                     pixels = latest['output'] if ai_enabled else None
                     frame_id = latest['output_frame'] if ai_enabled else (image.frame if image else None)
                     fresh = time.monotonic() - latest['output_at' if ai_enabled else 'image_at'] < 2
+                    if pipeline:
+                        fresh = fresh and pipeline.is_current(latest.get('output_details') or {})
                 if image is not None and fresh and frame_id != getattr(self, 'last_frame', None):
                     break
                 await asyncio.sleep(0.01)
@@ -90,6 +103,8 @@ async def run(args):
         pc = track = session_id = None
         candidates = []
         controls.stop()
+        if pipeline:
+            pipeline.history.clear()
         if old_track:
             old_track.stop()
         if old_pc:
@@ -101,11 +116,13 @@ async def run(args):
             return
         async with registration_lock:
             controls.reset()
+            if pipeline:
+                pipeline.history.clear()
             config = await sio.call('rtc:config', {}, timeout=10)
             if not config.get('success'):
                 raise RuntimeError('Could not load authenticated ICE configuration')
             ice_servers = config['iceServers']
-            result = await sio.call('vehicle:join', {'name': args.name, 'mode': 'carla'}, timeout=5)
+            result = await sio.call('vehicle:join', {'name': args.name, 'mode': 'carla', 'researchVersion': 1 if research_enabled else 0}, timeout=5)
             if not result.get('success'):
                 raise RuntimeError(result.get('message', 'Vehicle registration failed'))
             log.info('Registered. Open the dashboard, connect, and start video.')
@@ -126,7 +143,61 @@ async def run(args):
 
     @sio.on('control:apply')
     async def apply_control(data):
-        controls.accept(data)
+        accepted = controls.accept(data)
+        if research and accepted:
+            research.recorder.record('control', {**data, 'mode': controls.snapshot()['mode']})
+            if research.takeover and not controls.is_latched() and (data.get('manualInput') is True or any(data.get(k, 0) for k in ('throttle', 'steer'))):
+                if not research.takeover.get('firstActionNs'):
+                    research.takeover['firstActionNs'] = time.monotonic_ns()
+                    research.recorder.record('takeover:first-manual-action', research.takeover)
+
+    @sio.on('vehicle:supervise')
+    async def supervise(_data):
+        if session_id and sio.connected:
+            controls.supervise()
+
+    @sio.on('research:observation')
+    async def observation(data):
+        if research:
+            research.recorder.record('operator:network', data)
+
+    @sio.on('research:notice')
+    async def notice(data):
+        if research:
+            research.recorder.record('takeover:notification-receipt', data)
+
+    def operation_loop():
+        while not quit_event.is_set():
+            try:
+                request, future = operations.get(timeout=.1)
+            except queue.Empty:
+                continue
+            if future.cancelled():
+                continue
+            try:
+                result = {'success': True, 'state': research.command(request)}
+            except ValueError as error:
+                result = {'success': False, 'message': str(error)}
+            except Exception:
+                log.exception('Research operation failed')
+                controls.stop('Research operation failed')
+                result = {'success': False, 'message': 'CARLA operation failed; inspect sender logs'}
+            def finish(future=future, result=result):
+                if not future.done():
+                    future.set_result(result)
+            event_loop.call_soon_threadsafe(finish)
+
+    @sio.on('research:apply')
+    async def research_apply(data):
+        if not research or quit_event.is_set():
+            return {'success': False, 'message': 'CARLA research controller is not ready'}
+        future = event_loop.create_future()
+        try:
+            operations.put_nowait(({**data, 'expectedGeneration': controls.snapshot()['generation']}, future))
+            return await asyncio.wait_for(future, 7)
+        except (asyncio.TimeoutError, queue.Full):
+            controls.stop('Research operation timed out')
+            return {'success': False, 'message': 'Operation timed out; controls remain stopped'}
 
     @sio.on('stream:start')
     async def start_stream(data):
@@ -200,6 +271,9 @@ async def run(args):
                 await close_stream()
 
     def on_image(image):
+        if pipeline:
+            from comparison import Observation
+            pipeline.history.append(Observation(image.timestamp, image.frame, image, time.monotonic(), len(image.raw_data)))
         with image_lock:
             latest['image_at'] = time.monotonic()
             latest['image'] = image  # Latest only: do not accumulate camera latency.
@@ -216,10 +290,30 @@ async def run(args):
                 last_frame = image.frame
                 pixels = np.frombuffer(image.raw_data, dtype=np.uint8).reshape(image.height, image.width, 4)[:, :, :3].copy()
                 started = time.monotonic()
-                output, metrics = perception.process(pixels, timestamp=image.timestamp)
+                output_frame = image.frame
+                if pipeline:
+                    settings = pipeline.configuration()
+                    annotation = perception.process if settings['view'] == 'compare' and settings['method'] != 'off' else None
+                    output, comparison, samples, metrics = pipeline.process(
+                        annotate=annotation, evaluate=bool(research and research.recorder.active))
+                    with image_lock:
+                        latest['comparison'] = comparison
+                    if output is None:
+                        quit_event.wait(.02)
+                        continue
+                    captured_at = comparison['sourceCapturedAt']
+                    output_frame = (comparison['epoch'], comparison['revision'], comparison['referenceFrame'])
+                    if not pipeline.is_current(comparison):
+                        continue
+                    if research and research.recorder.active:
+                        research.recorder.frame(comparison, samples)
+                else:
+                    output, metrics = perception.process(pixels, timestamp=image.timestamp)
                 with image_lock:
                     latest.update(output=output, output_at=captured_at,
-                                  output_frame=image.frame, ai=metrics)
+                                  output_frame=output_frame, ai=metrics)
+                    if pipeline:
+                        latest['output_details'] = comparison
                 # Work on the newest camera frame next; never queue old frames.
                 quit_event.wait(max(0, 1 / getattr(args, 'ai_fps', 15) - (time.monotonic() - started)))
         except Exception as exc:
@@ -234,10 +328,17 @@ async def run(args):
             while not quit_event.is_set():
                 with image_lock:
                     fresh = time.monotonic() - latest['output_at' if ai_enabled else 'image_at'] < 2
-                if not fresh:
-                    controls.stop()
-                throttle, brake, steer = controls.current()
-                vehicle.apply_control(carla.VehicleControl(throttle=throttle, brake=brake, steer=steer))
+                    if pipeline:
+                        fresh = fresh and pipeline.is_current(latest.get('output_details') or {})
+                if not fresh and not controls.is_latched():
+                    controls.stop('Required monitoring video unavailable')
+                if research:
+                    research.tick()
+                    actual = vehicle.get_control()
+                    throttle, brake, steer = actual.throttle, actual.brake, actual.steer
+                else:
+                    throttle, brake, steer = controls.current()
+                    vehicle.apply_control(carla.VehicleControl(throttle=throttle, brake=brake, steer=steer))
                 snapshot = world.get_snapshot()
                 actor = snapshot.find(vehicle.id)
                 if actor is None:
@@ -248,6 +349,9 @@ async def run(args):
                     'heading': actor.get_transform().rotation.yaw % 360,
                     'gear': str(vehicle.get_control().gear), 'frameId': snapshot.frame,
                     'simulationTimestamp': snapshot.timestamp.elapsed_seconds}
+                if research:
+                    telemetry['research'] = research.snapshot()
+                    research.recorder.record('telemetry', telemetry)
                 with image_lock:
                     latest['telemetry'] = telemetry
                     latest['telemetry_at'] = time.monotonic()
@@ -259,26 +363,35 @@ async def run(args):
             quit_event.set()
         finally:
             try:
+                if research:
+                    with research.actuation_lock:
+                        research._disable_autopilot()
                 vehicle.apply_control(carla.VehicleControl(throttle=0.0, brake=1.0))
             except Exception:
                 log.exception('Could not apply final brake')
 
     def setup_carla():
-        nonlocal vehicle, camera, worker, world, scene, perception, perception_worker
+        nonlocal vehicle, camera, worker, world, scene, perception, perception_worker, research, operation_worker
         if ai_enabled:
             set_phase('loading-models')
             from perception import Perception
             log.info('Loading YOLO checkpoint: %s', args.weights)
-            perception = Perception(args.weights, args.device, args.confidence, args.optical_flow,
-                prediction=getattr(args, 'prediction', 'off'),
+            perception = Perception(args.weights, args.device, args.confidence, args.optical_flow if not pipeline else False,
+                prediction='off' if pipeline else getattr(args, 'prediction', 'off'),
                 prediction_ms=getattr(args, 'prediction_ms', 250),
                 raft_weights=getattr(args, 'raft_weights', DEFAULT_RAFT_WEIGHTS))
+        if pipeline and pipeline.configuration()['method'] == 'raft' and pipeline.configuration()['view'] in ('compare', 'predicted'):
+            from prediction import PredictionView
+            log.info('Loading RAFT-Small comparison checkpoint: %s', args.raft_weights)
+            pipeline.predictors['raft'] = PredictionView('raft', weights=args.raft_weights, device=args.device)
         set_phase('connecting-carla')
         client = carla.Client(args.host, args.port)
         client.set_timeout(10.0)
         log.info('CARLA client %s, server %s', client.get_client_version(), client.get_server_version())
         if client.get_client_version() != client.get_server_version():
             raise RuntimeError('CARLA client/server versions must match. Install the Python client matching your simulator.')
+        if research_enabled and client.get_server_version() != '0.9.15':
+            raise RuntimeError('Research controls/scenarios target CARLA 0.9.15; install a matching 0.9.15 Python client and server.')
         world = client.get_world()
         if world.get_settings().synchronous_mode:
             raise RuntimeError('This standalone bridge expects an asynchronous CARLA world. Start a fresh simulator without another synchronous controller.')
@@ -304,7 +417,7 @@ async def run(args):
         # traffic, otherwise a freshly spawned ego may still report (0, 0, 0).
         world.wait_for_tick(10.0)
         set_phase('spawning-traffic')
-        scene = TrafficScene(world, carla)
+        scene = TrafficScene(world, carla, seed=getattr(args, 'seed', 2026))
         scene.spawn(client, vehicle, getattr(args, 'traffic', 0), getattr(args, 'bicycles', 0),
                     getattr(args, 'pedestrians', 0), getattr(args, 'tm_port', 8000))
         camera_bp = world.get_blueprint_library().find('sensor.camera.rgb')
@@ -313,6 +426,31 @@ async def run(args):
         camera = world.spawn_actor(camera_bp, carla.Transform(carla.Location(x=2.0, z=1.5)), attach_to=vehicle)
         set_phase('waiting-camera')
         camera.listen(on_image)
+        if research_enabled:
+            from research import ResearchController
+            import hashlib
+            from importlib.metadata import version, PackageNotFoundError
+            def checkpoint(path):
+                path = Path(path)
+                return {'name': path.name, 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()} if path.is_file() else {'name': path.name, 'available': False}
+            versions = {}
+            for package in ('numpy', 'opencv-python', 'torch', 'torchvision', 'ultralytics', 'aiortc'):
+                try:
+                    versions[package] = version(package)
+                except PackageNotFoundError:
+                    versions[package] = 'not installed'
+            research = ResearchController(world, client, carla, vehicle, controls, pipeline, args.record_dir,
+                args.tm_port, args.seed, args.direction_speed_limit,
+                {'carlaClient': client.get_client_version(), 'carlaServer': client.get_server_version(),
+                 'yolo': {**checkpoint(args.weights), 'classes': getattr(getattr(perception, 'model', None), 'names', None)},
+                 'raft': checkpoint(args.raft_weights), 'packages': versions,
+                 'senderSources': {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in Path(__file__).parent.glob('*.py')},
+                 'extrapolation': {'flow': 'backward delayed-to-previous', 'motionScale': .7, 'maxDisplacementPixels': 80},
+                 'traffic': dict(scene.counts), 'trafficSeed': args.seed,
+                 'camera': {'width': args.width, 'height': args.height, 'fov': 90}})
+            research.attach_sensors()
+            operation_worker = threading.Thread(target=operation_loop, name='research-operations', daemon=True)
+            operation_worker.start()
         if ai_enabled:
             perception_worker = threading.Thread(target=perception_loop, name='yolo-inference', daemon=True)
             perception_worker.start()
@@ -327,18 +465,23 @@ async def run(args):
                          and (not ai_enabled or time.monotonic() - latest['output_at'] < 2)
                          and time.monotonic() - latest['telemetry_at'] < 2
                          and not quit_event.is_set())
+                if pipeline:
+                    ready = ready and pipeline.is_current(latest.get('output_details') or {})
                 phase = latest['phase']
                 if ready:
                     latest['phase'] = phase = 'ready'
                 elif phase == 'ready':
                     phase = 'camera-unavailable'
+                if pipeline and not ready and time.monotonic() - latest['image_at'] < 2 and not quit_event.is_set():
+                    phase = 'buffering-video'
                 if telemetry:
                     telemetry = {**telemetry, 'perception': {**latest['ai'], 'fresh': ready},
-                                 'traffic': dict(scene.counts) if scene else {}}
+                                 'traffic': dict(scene.counts) if scene else {},
+                                 'comparison': pipeline.report(latest['comparison']) if pipeline else latest['comparison']}
             if sio.connected:
                 try:
                     await sio.emit('vehicle:status', {'ready': ready, 'phase': phase, 'controlsStopped': controls.is_latched()})
-                    if telemetry and ready:
+                    if telemetry:
                         await sio.emit('vehicle:telemetry', telemetry)
                 except socketio.exceptions.SocketIOError:
                     controls.stop()
@@ -377,6 +520,8 @@ async def run(args):
         if status_task:
             status_task.cancel()
             await asyncio.gather(status_task, return_exceptions=True)
+        if operation_worker:
+            await asyncio.to_thread(operation_worker.join)
         if worker:
             await asyncio.to_thread(worker.join, 11)
         if perception_worker:
@@ -387,6 +532,11 @@ async def run(args):
         finally:
             await http_session.close()
             try:
+                if research:
+                    try:
+                        await asyncio.to_thread(research.close)
+                    except Exception:
+                        log.exception('Research cleanup failed')
                 if camera:
                     camera.stop()
                     camera.destroy()
@@ -424,7 +574,18 @@ def parse_args(argv=None, environ=None):
     parser.add_argument('--bicycles', type=int, default=env.get('TRAFFIC_BICYCLES', '5'))
     parser.add_argument('--pedestrians', type=int, default=env.get('TRAFFIC_PEDESTRIANS', '20'))
     parser.add_argument('--tm-port', type=int, default=8000)
+    parser.add_argument('--research', action=argparse.BooleanOptionalAction, default=env.get('RESEARCH_ENABLED', 'true').lower() == 'true')
+    parser.add_argument('--video-delay', type=int, choices=[0, 100, 200, 500, 800], default=int(env.get('VIDEO_DELAY_MS', '200')))
+    parser.add_argument('--view', choices=['compare', 'delayed', 'predicted', 'reference'], default=env.get('VIDEO_VIEW', 'compare'))
+    parser.add_argument('--show-reference', action='store_true')
+    parser.add_argument('--direction-speed-limit', type=float, default=float(env.get('DIRECTION_SPEED_LIMIT_KMH', '1')))
+    parser.add_argument('--seed', type=int, default=int(env.get('RESEARCH_SEED', '2026')))
+    parser.add_argument('--record-dir', type=Path, default=Path(__file__).with_name('recordings'))
     args = parser.parse_args(argv)
+    if not 0 < args.direction_speed_limit <= 5 or not 0 <= args.seed <= 2147483647:
+        parser.error('Direction limit must be in (0, 5] km/h and seed in [0, 2147483647]')
+    if args.video_delay not in (0, 100, 200, 500, 800) or args.view not in ('compare', 'delayed', 'predicted', 'reference'):
+        parser.error('Invalid video delay or display mode')
     args.token = env.get('SENDER_TOKEN', '')
     if len(args.token) < 32:
         parser.error('Set SENDER_TOKEN in carla-service/.env (at least 32 characters)')

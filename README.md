@@ -53,3 +53,8 @@ python carla-service/check_setup.py --models-only --prediction raft
 ```
 
 Browser tests use a separate server on port 4100 and the installed Chrome browser. They use test-only credentials and an explicitly labeled synthetic sender to exercise WebRTC reception and control behavior. They do not validate CARLA or internet/TURN connectivity. With the Python requirements installed, unittest also runs an optional real aiortc/Socket.IO integration test using only a stubbed CARLA API and in-memory test frames; otherwise that test is explicitly skipped. See the connection test guide for checks requiring the two computers.
+
+
+## CARLA research platform
+
+For reverse control, acknowledged simulator autonomy/takeover, time-aligned delayed/predicted video, scenario limitations, GPU setup, evaluation and the two-computer checklist, see [PERSONAL_SETUP_AND_TRAINING](docs/PERSONAL_SETUP_AND_TRAINING.md) and [TWO_COMPUTER_TEST](docs/TWO_COMPUTER_TEST.md), and [RESEARCH_PROTOCOL](docs/RESEARCH_PROTOCOL.md). The CARLA research sender targets matching CARLA 0.9.15 client/server builds. See [validation evidence and remaining live tests](docs/VALIDATION.md). Rebuild the credential-free Windows handoff with `npm run package:sender`.

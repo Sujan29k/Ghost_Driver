@@ -30,6 +30,7 @@ def main():
         from perception import Perception
         print(f'Python {sys.version.split()[0]} | torch {torch.__version__} | CUDA available: {torch.cuda.is_available()}')
         model = Perception(device=args.device, prediction=args.prediction)
+        print('YOLO checkpoint classes:', model.model.names)
         pixels = cv2.imread(str(args.image)) if args.image else np.zeros((360, 640, 3), dtype=np.uint8)
         if pixels is None:
             raise ValueError(f'Cannot read image: {args.image}')
@@ -52,6 +53,8 @@ def main():
             client_version, server_version = client.get_client_version(), client.get_server_version()
             if client_version != server_version:
                 raise RuntimeError(f'CARLA version mismatch: client {client_version}, server {server_version}')
+            if os.getenv('RESEARCH_ENABLED', 'true').lower() == 'true' and server_version != '0.9.15':
+                raise RuntimeError('The research profile requires CARLA client/server 0.9.15.')
             world = client.get_world()
             settings = world.get_settings()
             if settings.synchronous_mode or settings.no_rendering_mode:

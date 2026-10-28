@@ -9,6 +9,8 @@ output.parent.mkdir(exist_ok=True)
 files = list(source.glob('*.py')) + list(source.glob('requirements*.txt'))
 files += [source / '.env.example', source / 'README.md', source / 'ghostdriver/integration.py']
 files += list((root / 'docs').glob('*.md'))
+files += list((root / 'docs/examples').glob('evaluation-example.*'))
+files += list((source / 'scenario-configs').glob('*.json'))
 files += [p for p in (source / 'vendor/raft').rglob('*') if p.is_file() and p.suffix in ('.py', '.md')]
 files += [source / 'vendor/raft/LICENSE', source / 'ghostdriver/models/raft-small.pth',
           source / 'ghostdriver/yolov8n_coco128-5/weights/best.pt']

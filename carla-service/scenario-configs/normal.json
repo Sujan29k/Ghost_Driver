@@ -1,0 +1,40 @@
+{
+  "name": "normal",
+  "map": "current CARLA map",
+  "route": "straight",
+  "egoSpawn": "first free CARLA spawn point",
+  "hazard": null,
+  "weather": {
+    "cloudiness": 10,
+    "precipitation": 0,
+    "wetness": 0,
+    "fog_density": 0,
+    "sun_altitude_angle": 65
+  },
+  "physicalEffects": [],
+  "traffic": {
+    "cars": 30,
+    "bicycles": 5,
+    "pedestrians": 20
+  },
+  "seed": 2026,
+  "takeover": {
+    "triggers": "configured policy; route completion ends run",
+    "expected": "no scripted trigger"
+  },
+  "requiredAssets": [
+    "stock map and vehicle blueprints"
+  ],
+  "fallback": "stock map traffic; unavailable actor counts are reported",
+  "commandExample": {
+    "action": "scenario",
+    "data": {
+      "operation": "start",
+      "name": "normal",
+      "severity": 1,
+      "seed": 2026,
+      "blockage": "partial"
+    }
+  },
+  "configurationNote": "Descriptive preset and authenticated command example. Runtime logs contain resolved coordinates, actual assets/counts and policy. No deterministic async replay claim."
+}

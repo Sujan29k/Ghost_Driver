@@ -1,0 +1,64 @@
+{
+  "trialId": "20261028T060701Z-5295071c",
+  "label": "Synthetic format example only",
+  "trialOrder": 1,
+  "visualReconstruction": {
+    "alignedSamples": 1,
+    "pairedSamples": 1,
+    "delayedOnlySamples": 0,
+    "allDelayed": {
+      "mae": 1.0,
+      "psnr": 48.1308036086791,
+      "ssim": 0.9946667377768298,
+      "identicalImages": 0
+    },
+    "pairedDelayed": {
+      "mae": 1.0,
+      "psnr": 48.1308036086791,
+      "ssim": 0.9946667377768298,
+      "identicalImages": 0
+    },
+    "pairedPredicted": {
+      "mae": 2.0,
+      "psnr": 42.11020369539948,
+      "ssim": 0.98403209548807,
+      "identicalImages": 0
+    },
+    "predictionWorseCases": 1,
+    "predictionWorseExamples": [
+      {
+        "referenceFrame": 5,
+        "delayedFrame": 3,
+        "horizonMs": 200,
+        "delayed": {
+          "mae": 1.0,
+          "psnr": 48.1308036086791,
+          "identical": false,
+          "ssim": 0.9946667377768298
+        },
+        "predicted": {
+          "mae": 2.0,
+          "psnr": 42.11020369539948,
+          "identical": false,
+          "ssim": 0.98403209548807
+        }
+      }
+    ],
+    "alignmentErrors": [],
+    "psnrNote": "Identical images have infinite PSNR, represented as null and counted separately."
+  },
+  "recording": {
+    "dropped": 0,
+    "receivedFrames": 1,
+    "evaluatedSamples": 1
+  },
+  "taskPerformance": {
+    "eventCount": 0,
+    "takeovers": [],
+    "collisions": 0,
+    "laneEvents": 0,
+    "events": [],
+    "clockNote": "Durations use only sender monotonic time. Notification receipt includes the network round trip, not exact browser display time.",
+    "interpretation": "Visual reconstruction and task outcomes are separate. Repeat/counterbalance operator trials before claiming driving benefit."
+  }
+}

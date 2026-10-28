@@ -40,11 +40,16 @@ export default function ConnectionControls() {
     <label className="text-xs"><input type="checkbox" checked={state.relayOnly}
       disabled={!state.turnConfigured || state.webrtcStatus !== 'idle'}
       onChange={(e) => state.patch({ relayOnly: e.target.checked })} /> Test TURN only</label>
-    <p className="text-xs text-ghost-muted">{state.turnConfigured ? 'TURN test forces the browser to use a relay. Stop video to change this setting.' : 'TURN is not configured on the backend.'}</p>
+    <p className="text-xs text-ghost-muted">{!state.socketConnected
+      ? 'Connect backend with your dashboard token to check TURN configuration.'
+      : state.turnConfigured
+        ? 'TURN is configured. Stop video, then use Test TURN only to verify relay access.'
+        : 'TURN is not configured on the backend.'}</p>
     <button className="btn-ghost" disabled={!state.vehicleConnected} onClick={() => { state.patch({ videoWanted: false, retryCount: 0 }); socket.emit('stream:stop', {}); }}>Stop stream</button>
     <button className="btn-ghost btn-danger" disabled={!state.vehicleConnected} onClick={() => run(() => request('control:emergency'))}>Emergency stop</button>
-    {state.emergency && <><p role="status" className="text-ghost-danger text-sm">Controls stopped — emergency stop active</p>
-      <button className="btn-ghost" disabled={!state.streamActive} onClick={() => run(() => request('control:resume'))}>Resume controls</button></>}
+    {state.emergency && <><p role="status" className="text-ghost-danger text-sm">{state.researchVersion
+      ? `Controls stopped — ${state.research?.reason || 'Select a driving mode below'}` : 'Controls stopped — emergency stop active'}</p>
+      {!state.researchVersion && <button className="btn-ghost" disabled={!state.streamActive} onClick={() => run(() => request('control:resume'))}>Resume controls</button>}</>}
     {state.error && <p role="alert" className="text-sm text-ghost-danger break-words">{state.error}</p>}
   </div>;
 }

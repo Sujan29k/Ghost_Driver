@@ -104,7 +104,7 @@ export default function useWebRTC(videoRef) {
             lastFrameAt = Date.now(); retryCount = 0;
             patch({ streamActive: true, webrtcStatus: 'active', retryCount: 0, error: '' });
             // Repeated readiness is a received-frame heartbeat, also checked by the backend.
-            socket.emit('stream:ready', { sessionId: id });
+            socket.emit('stream:ready', { sessionId: id, stats: { fps: Number.isFinite(fps) ? fps : 0, packetLoss: 100 * lost / Math.max(1, lost + received), videoRtt: useVehicleStore.getState().videoRtt, backendRttMs: useVehicleStore.getState().latency, browserTimestamp: Date.now() } });
           }
           patch({ fps: Number.isFinite(fps) ? fps : 0, packetLoss: 100 * lost / Math.max(1, lost + received), statsAvailable: true });
           previous = r;

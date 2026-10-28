@@ -19,14 +19,15 @@ export function useConnection() {
     const onVehicles = (vehicles) => state().patch({ vehicles, carlaStatus: vehicles.some((v) => v.id === state().connectedVehicleId && v.ready && v.mode === 'carla') ? 'connected' : 'offline' });
     const onReleased = ({ reason }) => { state().resetVehicle(); state().patch({ error: reason === 'Operator disconnected' ? '' : reason }); };
     const onEmergency = ({ active }) => { state().clearActiveKeys(); state().patch({ emergency: active }); };
+    const onResearch = (research) => state().patch({ research });
     const onError = (error) => state().patch({ error: `Backend connection: ${error.message}` });
     socket.on('connect', onConnect).on('disconnect', onDisconnect).on('vehicles:list', onVehicles)
-      .on('vehicle:released', onReleased).on('vehicle:emergency', onEmergency).on('connect_error', onError);
+      .on('research:state', onResearch).on('vehicle:released', onReleased).on('vehicle:emergency', onEmergency).on('connect_error', onError);
 
     if (socket.connected) onConnect();
     return () => {
       socket.off('connect', onConnect).off('disconnect', onDisconnect).off('vehicles:list', onVehicles)
-        .off('vehicle:released', onReleased).off('vehicle:emergency', onEmergency).off('connect_error', onError);
+        .off('research:state', onResearch).off('vehicle:released', onReleased).off('vehicle:emergency', onEmergency).off('connect_error', onError);
       socket.disconnect();
     };
   }, []);
@@ -34,7 +35,7 @@ export function useConnection() {
     connectVehicle: async (vehicleId) => {
       const result = await request('vehicle:connect', { vehicleId });
       useVehicleStore.getState().patch({ vehicleConnected: true, connectedVehicleId: result.vehicle.id,
-        mode: result.vehicle.mode, carlaStatus: result.vehicle.ready ? 'connected' : 'offline',
+        researchVersion: result.vehicle.researchVersion || 0, mode: result.vehicle.mode, carlaStatus: result.vehicle.ready ? 'connected' : 'offline',
         emergency: result.emergency, error: '' });
     },
     disconnectVehicle: () => request('vehicle:disconnect'),
