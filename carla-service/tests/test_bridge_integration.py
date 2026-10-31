@@ -24,7 +24,7 @@ except ImportError:
 
 class FakeCarla:
     """Small CARLA API fixture producing solid red test frames in memory."""
-    def __init__(self):
+    def __init__(self, version="0.9.15"):
         self.frame = 0
         self.paused = False
         self.vehicle_destroyed = self.camera_destroyed = False
@@ -70,7 +70,7 @@ class FakeCarla:
         tm = SimpleNamespace(set_path=lambda *_: None, auto_lane_change=lambda *_: None,
             vehicle_percentage_speed_difference=lambda *_: None, distance_to_leading_vehicle=lambda *_: None)
         self.Client = lambda *_: SimpleNamespace(set_timeout=lambda _: None, get_trafficmanager=lambda _: tm,
-            get_client_version=lambda: '0.9.15', get_server_version=lambda: '0.9.15', get_world=lambda: world)
+            get_client_version=lambda: version, get_server_version=lambda: version, get_world=lambda: world)
         self.VehicleControl = lambda **kw: SimpleNamespace(**{**dict(throttle=0, brake=0, steer=0, reverse=False, gear=-1 if kw.get('reverse') else 1), **kw})
         self.Transform = lambda *_: None
         self.Location = lambda **kw: SimpleNamespace(**{**dict(x=0, y=0, z=0), **kw})
@@ -107,7 +107,10 @@ class BridgeIntegrationTest(unittest.IsolatedAsyncioTestCase):
     async def test_research_reverse_autonomy_scenario_takeover_and_camera_loss(self):
         await self.exercise_bridge(True, research_mode=True)
 
-    async def exercise_bridge(self, ai, stall_inference=False, research_mode=False):
+    async def test_research_workflow_with_0916_api_fixture(self):
+        await self.exercise_bridge(True, research_mode=True, version='0.9.16')
+
+    async def exercise_bridge(self, ai, stall_inference=False, research_mode=False, version="0.9.15"):
         import bridge
         root = Path(__file__).resolve().parents[2]
         env = {**os.environ, 'DASHBOARD_TOKEN': 'integration-dashboard-token-0000000000',
@@ -120,7 +123,7 @@ class BridgeIntegrationTest(unittest.IsolatedAsyncioTestCase):
             cwd=root, env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         operator = socketio.AsyncClient()
         peer = RTCPeerConnection(RTCConfiguration(iceServers=[]))
-        fake = FakeCarla()
+        fake = FakeCarla(version)
         task = None
         frames = asyncio.Queue()
         offers = asyncio.Queue()

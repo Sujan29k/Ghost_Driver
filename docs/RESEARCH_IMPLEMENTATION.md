@@ -1,5 +1,8 @@
 # Research platform implementation
 
+**Compatibility update (2026-10-31):** Research startup accepts matching CARLA 0.9.15 or 0.9.16 client/server releases. For 0.9.16 installation and validation steps, follow [CARLA compatibility](CARLA_COMPATIBILITY.md). Earlier 0.9.15 commands below remain valid for that simulator.
+
+
 Extend the existing authenticated two-computer application. Implementation order:
 
 1. Sequenced reverse/direction and explicit driving authority, with local safety stops.

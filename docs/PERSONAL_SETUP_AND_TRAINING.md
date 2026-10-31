@@ -1,10 +1,13 @@
 # GhostDriver personal setup, scenario work, and training guide
 
+**Compatibility update (2026-10-31):** Research startup accepts matching CARLA 0.9.15 or 0.9.16 client/server releases. For 0.9.16 installation and validation steps, follow [CARLA compatibility](CARLA_COMPATIBILITY.md). Earlier 0.9.15 commands below remain valid for that simulator.
+
+
 ## What runs without retraining
 
 Reverse control, stop-at-low-speed direction changes, the timestamped delayed/predicted comparison, mode switching, CARLA Traffic Manager route following, the scripted takeover policy, weather/friction presets, collision-prop roadblocks, flood approximations, and local trial recording use the existing code and shipped checkpoints. CARLA Traffic Manager is simulator autonomy. YOLO detects only the classes in its checkpoint; RAFT estimates image motion. Neither is a trained autonomous-driving or disaster-understanding policy.
 
-The sender currently checks that the CARLA Python client and server match and, for this research profile, requires version **0.9.15**. CARLA 0.9.15 uses CARLA's modified Unreal Engine 4.26 branch for source-built map/asset work. Packaged CARLA installs do not include the Unreal Editor authoring workflow; adding a custom map requires the source/editor build. See the [CARLA 0.9.15 custom map guide](https://carla.readthedocs.io/en/0.9.15/tuto_M_custom_map_overview/) and [UE build notes](https://carla.readthedocs.io/en/0.9.15/build_windows/).
+The sender currently checks that the CARLA Python client and server match and, for this research profile, accepts matching versions **0.9.15 or 0.9.16**. CARLA 0.9.15 uses CARLA's modified Unreal Engine 4.26 branch for source-built map/asset work. Packaged CARLA installs do not include the Unreal Editor authoring workflow; adding a custom map requires the source/editor build. See the [CARLA 0.9.15 custom map guide](https://carla.readthedocs.io/en/0.9.15/tuto_M_custom_map_overview/) and [UE build notes](https://carla.readthedocs.io/en/0.9.15/build_windows/).
 
 ## Mac dashboard and backend
 

@@ -1,5 +1,8 @@
 # Two-computer startup and research run
 
+**Compatibility update (2026-10-31):** Research startup accepts matching CARLA 0.9.15 or 0.9.16 client/server releases. For 0.9.16 installation and validation steps, follow [CARLA compatibility](CARLA_COMPATIBILITY.md). Earlier 0.9.15 commands below remain valid for that simulator.
+
+
 These changes must be present on **both** computers. Use the refreshed `artifacts/ghostdriver-sender.zip` for Windows if the working tree has not yet been committed/pushed. A `git pull` alone cannot retrieve unpublished local changes. Preserve each computer's existing `.env` files.
 
 ## Mac
@@ -55,7 +58,7 @@ Wait for the map to load. Keep rendered, asynchronous simulation enabled. Close 
 .\carla-service\.venv\Scripts\python.exe carla-service\bridge.py
 ```
 
-Enter only the Mac's HTTPS base URL at the backend prompt. Enter the sender token at its separate hidden prompt; Enter retains an already saved token. The setup checker prints/checks client/server versions and actual YOLO class names. The bridge refuses mismatched versions or a research server other than 0.9.15. Keep CARLA and the bridge running.
+Enter only the Mac's HTTPS base URL at the backend prompt. Enter the sender token at its separate hidden prompt; Enter retains an already saved token. The setup checker prints/checks client/server versions and actual YOLO class names. The bridge refuses mismatched versions or a research server outside 0.9.15/0.9.16. Keep CARLA and the bridge running.
 
 ## Demonstration checklist
 

@@ -51,10 +51,8 @@ def main():
             client = carla.Client(args.host, args.port)
             client.set_timeout(10.0)
             client_version, server_version = client.get_client_version(), client.get_server_version()
-            if client_version != server_version:
-                raise RuntimeError(f'CARLA version mismatch: client {client_version}, server {server_version}')
-            if os.getenv('RESEARCH_ENABLED', 'true').lower() == 'true' and server_version != '0.9.15':
-                raise RuntimeError('The research profile requires CARLA client/server 0.9.15.')
+            from carla_compat import validate_versions
+            validate_versions(client_version, server_version, os.getenv('RESEARCH_ENABLED', 'true').lower() == 'true')
             world = client.get_world()
             settings = world.get_settings()
             if settings.synchronous_mode or settings.no_rendering_mode:

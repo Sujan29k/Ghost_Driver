@@ -388,10 +388,8 @@ async def run(args):
         client = carla.Client(args.host, args.port)
         client.set_timeout(10.0)
         log.info('CARLA client %s, server %s', client.get_client_version(), client.get_server_version())
-        if client.get_client_version() != client.get_server_version():
-            raise RuntimeError('CARLA client/server versions must match. Install the Python client matching your simulator.')
-        if research_enabled and client.get_server_version() != '0.9.15':
-            raise RuntimeError('Research controls/scenarios target CARLA 0.9.15; install a matching 0.9.15 Python client and server.')
+        from carla_compat import validate_versions
+        validate_versions(client.get_client_version(), client.get_server_version(), research_enabled)
         world = client.get_world()
         if world.get_settings().synchronous_mode:
             raise RuntimeError('This standalone bridge expects an asynchronous CARLA world. Start a fresh simulator without another synchronous controller.')

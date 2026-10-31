@@ -1,5 +1,8 @@
 # GhostDriver
 
+**Compatibility update (2026-10-31):** Research startup accepts matching CARLA 0.9.15 or 0.9.16 client/server releases. For 0.9.16 installation and validation steps, follow [CARLA compatibility](docs/CARLA_COMPATIBILITY.md). Earlier 0.9.15 commands below remain valid for that simulator.
+
+
 Watch a CARLA RGB camera on your local React dashboard while CARLA runs on a friend's GPU computer. The Express/Socket.IO backend stays on your laptop. A Cloudflare Tunnel lets the Python sender reach that backend over HTTPS; WebRTC carries video between the computers, directly or through an external TURN service.
 
 ```mermaid
@@ -57,4 +60,4 @@ Browser tests use a separate server on port 4100 and the installed Chrome browse
 
 ## CARLA research platform
 
-For reverse control, acknowledged simulator autonomy/takeover, time-aligned delayed/predicted video, scenario limitations, GPU setup, evaluation and the two-computer checklist, see [PERSONAL_SETUP_AND_TRAINING](docs/PERSONAL_SETUP_AND_TRAINING.md) and [TWO_COMPUTER_TEST](docs/TWO_COMPUTER_TEST.md), and [RESEARCH_PROTOCOL](docs/RESEARCH_PROTOCOL.md). The CARLA research sender targets matching CARLA 0.9.15 client/server builds. See [validation evidence and remaining live tests](docs/VALIDATION.md). Rebuild the credential-free Windows handoff with `npm run package:sender`.
+For reverse control, acknowledged simulator autonomy/takeover, time-aligned delayed/predicted video, scenario limitations, GPU setup, evaluation and the two-computer checklist, see [PERSONAL_SETUP_AND_TRAINING](docs/PERSONAL_SETUP_AND_TRAINING.md) and [TWO_COMPUTER_TEST](docs/TWO_COMPUTER_TEST.md), and [RESEARCH_PROTOCOL](docs/RESEARCH_PROTOCOL.md). The CARLA research sender accepts matching CARLA 0.9.15 or 0.9.16 client/server builds. See [validation evidence and remaining live tests](docs/VALIDATION.md). Rebuild the credential-free Windows handoff with `npm run package:sender`.
