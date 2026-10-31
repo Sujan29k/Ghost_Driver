@@ -58,9 +58,9 @@ test('mock video, simultaneous controls, stop, resume, late discovery and reconn
   await dashboard.bringToFront();
   await dashboard.keyboard.down('w');
   await dashboard.keyboard.down('a');
-  await expect(mock.locator('#control')).toContainText('Throttle 1.0 · Brake 0.0 · Steer -0.5');
+  await expect(mock.locator('#control')).toContainText('Throttle 0.5 · Brake 0.0 · Steer -0.5');
   await dashboard.keyboard.up('a');
-  await expect(mock.locator('#control')).toContainText('Throttle 1.0 · Brake 0.0 · Steer 0.0');
+  await expect(mock.locator('#control')).toContainText('Throttle 0.5 · Brake 0.0 · Steer 0.0');
   await expect.poll(async () => parseFloat(await mock.locator('#speed').textContent())).toBeGreaterThan(1);
   await dashboard.keyboard.press('Space');
   await expect(dashboard.getByText('Controls stopped — emergency stop active', { exact: true })).toBeVisible();
@@ -70,7 +70,7 @@ test('mock video, simultaneous controls, stop, resume, late discovery and reconn
   await dashboard.getByRole('button', { name: 'Resume controls' }).click();
   await expect(dashboard.getByRole('button', { name: 'Resume controls' })).toHaveCount(0);
   await dashboard.keyboard.down('w');
-  await expect(mock.locator('#control')).toContainText('Throttle 1.0');
+  await expect(mock.locator('#control')).toContainText('Throttle 0.5');
   // Headless Chrome emulates focus for every page; dispatch the lifecycle events explicitly.
   await dashboard.evaluate(() => window.dispatchEvent(new Event('blur')));
   await expect(mock.locator('#control')).toContainText('Throttle 0.0 · Brake 1.0');
@@ -230,7 +230,7 @@ test('research UI acknowledges modes, clears held keys, compares views and expos
     await expect(panel).toContainText('Pending sender acknowledgement');
     await expect(panel).toContainText('Acknowledged: MANUAL');
     await page.keyboard.down('w');
-    await expect(mock.locator('#control')).toContainText('Throttle 1.0');
+    await expect(mock.locator('#control')).toContainText('Throttle 0.5');
     await page.keyboard.press('Space');
     await expect(mock.locator('#control')).toContainText('Throttle 0.0 · Brake 1.0');
     await expect.poll(async () => parseFloat(await mock.locator('#speed').textContent())).toBeLessThan(1);
@@ -245,7 +245,7 @@ test('research UI acknowledges modes, clears held keys, compares views and expos
     await expect(mock.locator('#control')).toContainText('Throttle 0.0');
     await page.keyboard.up('w');
     await page.keyboard.down('w');
-    await expect(mock.locator('#control')).toContainText('Throttle 1.0');
+    await expect(mock.locator('#control')).toContainText('Throttle 0.5');
     await page.keyboard.up('w');
     await page.keyboard.press('Space');
     await expect.poll(async () => parseFloat(await mock.locator('#speed').textContent())).toBeLessThan(1);

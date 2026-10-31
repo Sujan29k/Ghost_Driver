@@ -45,7 +45,8 @@ async def run(args):
     if research_enabled and ai_enabled:
         from comparison import ComparisonPipeline
         pipeline = ComparisonPipeline(args.device, args.raft_weights, args.video_delay,
-                                      args.prediction, args.view, args.show_reference)
+                                      args.prediction, args.view, args.show_reference,
+                                      raft_iterations=getattr(args, 'raft_iterations', 12))
     quit_event = threading.Event()
     controls = ControlState()
     image_lock = threading.Lock()
@@ -315,7 +316,7 @@ async def run(args):
                     if pipeline:
                         latest['output_details'] = comparison
                 # Work on the newest camera frame next; never queue old frames.
-                quit_event.wait(max(0, 1 / getattr(args, 'ai_fps', 15) - (time.monotonic() - started)))
+                quit_event.wait(max(0, 1 / getattr(args, 'ai_fps', 30) - (time.monotonic() - started)))
         except Exception as exc:
             log.exception('YOLO processing stopped')
             with image_lock:
@@ -379,11 +380,13 @@ async def run(args):
             perception = Perception(args.weights, args.device, args.confidence, args.optical_flow if not pipeline else False,
                 prediction='off' if pipeline else getattr(args, 'prediction', 'off'),
                 prediction_ms=getattr(args, 'prediction_ms', 250),
-                raft_weights=getattr(args, 'raft_weights', DEFAULT_RAFT_WEIGHTS))
+                raft_weights=getattr(args, 'raft_weights', DEFAULT_RAFT_WEIGHTS),
+                raft_iterations=getattr(args, 'raft_iterations', 12))
         if pipeline and pipeline.configuration()['method'] == 'raft' and pipeline.configuration()['view'] in ('compare', 'predicted'):
             from prediction import PredictionView
             log.info('Loading RAFT-Small comparison checkpoint: %s', args.raft_weights)
-            pipeline.predictors['raft'] = PredictionView('raft', weights=args.raft_weights, device=args.device)
+            pipeline.predictors['raft'] = PredictionView('raft', weights=args.raft_weights, device=args.device,
+                                                        iterations=getattr(args, 'raft_iterations', 12))
         set_phase('connecting-carla')
         client = carla.Client(args.host, args.port)
         client.set_timeout(10.0)
@@ -441,7 +444,7 @@ async def run(args):
                 args.tm_port, args.seed, args.direction_speed_limit,
                 {'carlaClient': client.get_client_version(), 'carlaServer': client.get_server_version(),
                  'yolo': {**checkpoint(args.weights), 'classes': getattr(getattr(perception, 'model', None), 'names', None)},
-                 'raft': checkpoint(args.raft_weights), 'packages': versions,
+                 'raft': {**checkpoint(args.raft_weights), 'iterations': getattr(args, 'raft_iterations', 12)}, 'packages': versions,
                  'senderSources': {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in Path(__file__).parent.glob('*.py')},
                  'extrapolation': {'flow': 'backward delayed-to-previous', 'motionScale': .7, 'maxDisplacementPixels': 80},
                  'traffic': dict(scene.counts), 'trafficSeed': args.seed,
@@ -562,7 +565,8 @@ def parse_args(argv=None, environ=None):
     parser.add_argument('--weights', type=Path, default=DEFAULT_WEIGHTS, help='Local trained YOLO checkpoint')
     parser.add_argument('--device', default=env.get('AI_DEVICE', 'auto'), help='auto, cpu, or CUDA index such as 0')
     parser.add_argument('--confidence', type=float, default=0.4)
-    parser.add_argument('--ai-fps', type=float, default=env.get('AI_FPS', '15'), help='Maximum inference frequency')
+    parser.add_argument('--ai-fps', type=float, default=env.get('AI_FPS', '30'), help='Maximum inference frequency; actual FPS depends on compute and transport')
+    parser.add_argument('--raft-iterations', type=int, default=env.get('RAFT_ITERATIONS', '12'), help='RAFT refinements (1-32); fewer can be faster but less accurate')
     parser.add_argument('--optical-flow', action='store_true', help='Add a side-by-side Farneback motion view')
     parser.add_argument('--prediction', choices=['off', 'raft', 'farneback'], default=env.get('PREDICTION', 'off'),
                         help='Optional estimated future view beside live YOLO video')
@@ -580,6 +584,8 @@ def parse_args(argv=None, environ=None):
     parser.add_argument('--seed', type=int, default=int(env.get('RESEARCH_SEED', '2026')))
     parser.add_argument('--record-dir', type=Path, default=Path(__file__).with_name('recordings'))
     args = parser.parse_args(argv)
+    if not 1 <= args.raft_iterations <= 32:
+        parser.error('--raft-iterations must be between 1 and 32')
     if not 0 < args.direction_speed_limit <= 5 or not 0 <= args.seed <= 2147483647:
         parser.error('Direction limit must be in (0, 5] km/h and seed in [0, 2147483647]')
     if args.video_delay not in (0, 100, 200, 500, 800) or args.view not in ('compare', 'delayed', 'predicted', 'reference'):

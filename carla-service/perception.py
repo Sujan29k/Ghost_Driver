@@ -13,7 +13,7 @@ ROAD_CLASSES = {'car', 'truck', 'bus', 'person', 'bicycle', 'motorcycle'}
 
 class Perception:
     def __init__(self, weights=DEFAULT_WEIGHTS, device='auto', confidence=0.4, flow=False,
-                 prediction='off', prediction_ms=250, raft_weights=DEFAULT_RAFT_WEIGHTS):
+                 prediction='off', prediction_ms=250, raft_weights=DEFAULT_RAFT_WEIGHTS, raft_iterations=12):
         from ultralytics import YOLO
         import cv2
         import numpy as np
@@ -26,7 +26,7 @@ class Perception:
         self.predictor = None
         if prediction != 'off':
             from prediction import PredictionView
-            self.predictor = PredictionView(prediction, prediction_ms, raft_weights, device)
+            self.predictor = PredictionView(prediction, prediction_ms, raft_weights, device, raft_iterations)
         # Warm up before declaring the sender ready. Missing/incompatible models
         # fail explicitly rather than silently switching to unprocessed video.
         self.model.predict(np.zeros((360, 640, 3), dtype=np.uint8),

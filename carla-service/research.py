@@ -1,11 +1,14 @@
 """Sender-owned driving authority and research operations for CARLA 0.9.15+."""
 import math
+import logging
 import threading
 import time
 from recording import TrialRecorder
 from routes import RoutePlanner
 from scenarios import ScenarioManager
 from takeover import TakeoverPolicy
+
+log = logging.getLogger('ghostdriver')
 
 
 class ResearchController:
@@ -107,19 +110,29 @@ class ResearchController:
                 if not hasattr(self.tm, 'set_path'):
                     raise ValueError('Installed CARLA Traffic Manager does not support set_path')
                 self.policy.reset()
-                self.tm.set_path(self.vehicle, self.routes.points)
-                self.tm.auto_lane_change(self.vehicle, False)
-                self.tm.vehicle_percentage_speed_difference(self.vehicle, 60)
-                self.tm.distance_to_leading_vehicle(self.vehicle, 5.0)
             with self.actuation_lock:
                 # A disconnect/emergency during route work invalidates this operation.
                 self.controls.transition(mode, generation)
                 if mode == 'AUTONOMOUS':
-                    self.vehicle.set_autopilot(True, self.tm_port)
-                    self.autopilot = True
-                    if self.controls.snapshot()['generation'] != generation:
+                    try:
+                        # The bridge owns an asynchronous world, including when
+                        # background traffic is disabled. Register before routing.
+                        self.tm.set_synchronous_mode(False)
+                        self.vehicle.apply_control(self.carla.VehicleControl(
+                            throttle=0.0, brake=0.0, hand_brake=False, reverse=False))
+                        self.vehicle.set_autopilot(True, self.tm_port)
+                        self.autopilot = True
+                        self.tm.set_path(self.vehicle, self.routes.points)
+                        self.tm.auto_lane_change(self.vehicle, False)
+                        self.tm.vehicle_percentage_speed_difference(self.vehicle, 60)
+                        self.tm.distance_to_leading_vehicle(self.vehicle, 5.0)
+                        if self.controls.snapshot()['generation'] != generation:
+                            raise ValueError('Autonomy cancelled by a newer safety stop')
+                    except Exception:
+                        self.controls.stop('Autonomous startup failed')
                         self._disable_autopilot()
-                        raise ValueError('Autonomy cancelled by a newer safety stop')
+                        self.vehicle.apply_control(self.carla.VehicleControl(brake=1.0))
+                        raise
                 with self.state_lock:
                     if mode == 'MANUAL' and request.get('previousMode') == 'AUTONOMOUS' and not self.takeover:
                         self.takeover = {'source': 'operator', 'reason': 'Operator requested manual control',
@@ -132,6 +145,7 @@ class ResearchController:
                     if mode in ('MANUAL', 'AUTONOMOUS'):
                         self.collision = False
             self.acknowledged_mode = mode
+            log.info('Driving mode acknowledged: %s', mode)
             self.recorder.record('mode:acknowledged', {'mode': mode, 'route': self.routes.snapshot()})
         elif action == 'direction':
             self._stopped()
@@ -229,6 +243,7 @@ class ResearchController:
                     self.vehicle.apply_control(self.carla.VehicleControl(brake=1.0))
         current_mode = self.controls.snapshot()['mode']
         if current_mode != self.previous_mode:
+            log.info('Driving mode: %s -> %s (%s)', self.previous_mode, current_mode, self.controls.reason)
             self.recorder.record('mode:changed', {'previous': self.previous_mode, 'mode': current_mode,
                                                'reason': self.controls.reason})
             self.previous_mode = current_mode

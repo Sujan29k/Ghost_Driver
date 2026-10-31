@@ -46,6 +46,7 @@ class HistoryTest(unittest.TestCase):
         self.assertEqual(details['referenceFrame'], 3)
         self.assertEqual(details['delayedFrame'], 2)
         self.assertNotEqual(seen['delayed'], int(samples['reference'][0, 0, 0]))
+        self.assertEqual(int(samples['previous'][0, 0, 0]), seen['previous'])
         self.assertEqual(samples['predicted'].shape, samples['reference'].shape)
         self.assertIsNotNone(output)
         self.assertNotIn('metrics', details)  # Scoring belongs to the recorder worker.
@@ -77,6 +78,24 @@ class HistoryTest(unittest.TestCase):
         self.assertEqual(details['predictionMs'], 0)
         self.assertEqual(len(pipeline.history.frames), 2)
 
+    def test_all_video_views_keep_dimensions_and_reference_out_of_predictor(self):
+        for view, reference, panels in [('delayed', False, 1), ('predicted', False, 1),
+                                       ('reference', False, 1), ('compare', False, 2), ('compare', True, 3)]:
+            with self.subTest(view=view, reference=reference):
+                pipeline = ComparisonPipeline(delay_ms=100, method='farneback', view=view, reference=reference)
+                for i, t in enumerate((0, .1, .2)):
+                    pixels = np.full((64, 64, 3), i, np.uint8)
+                    pipeline.history.append(Observation(t, i, pixels, time.monotonic(), pixels.nbytes))
+                calls = []
+                def predict(previous, delayed, *_):
+                    calls.append((int(previous[0, 0, 0]), int(delayed[0, 0, 0])))
+                    return delayed.copy()
+                pipeline.predictors['farneback'] = SimpleNamespace(predict_pair=predict)
+                output, _, samples, _ = pipeline.process(evaluate=False)
+                self.assertEqual(output.shape, (64, 64 * panels, 3))
+                self.assertIsNone(samples)
+                self.assertEqual(calls, [(0, 1)] if view in ('predicted', 'compare') else [])
+
     def test_status_ages_without_waiting_for_stalled_inference(self):
         pipeline = ComparisonPipeline(delay_ms=0, method='farneback')
         image = np.zeros((32, 32, 3), np.uint8)
@@ -101,6 +120,66 @@ class HistoryTest(unittest.TestCase):
 
 
 class SafetyAndResearchTest(unittest.TestCase):
+    def autonomy_fixture(self, folder):
+        controls = ControlState(timeout=5)
+        controls.supervise()
+        state = SimpleNamespace(autopilot=False, synchronous=True, applied=None)
+        location = SimpleNamespace(x=0, y=0, z=0)
+        vehicle = SimpleNamespace(get_velocity=lambda: location, get_location=lambda: location,
+            apply_control=lambda value: setattr(state, 'applied', value),
+            set_autopilot=lambda enabled, *_: setattr(state, 'autopilot', enabled),
+            is_at_traffic_light=lambda: False)
+        def path(*_):
+            self.assertFalse(state.synchronous)
+            self.assertTrue(state.autopilot)
+            self.assertEqual(state.applied.brake, 0)
+        tm = SimpleNamespace(set_synchronous_mode=lambda value: setattr(state, 'synchronous', value),
+            set_path=path, auto_lane_change=lambda *_: None,
+            vehicle_percentage_speed_difference=lambda *_: None, distance_to_leading_vehicle=lambda *_: None)
+        world = SimpleNamespace(get_map=lambda: None)
+        carla = SimpleNamespace(VehicleControl=lambda **kw: SimpleNamespace(**kw))
+        controller = ResearchController(world, SimpleNamespace(get_trafficmanager=lambda _: tm),
+                                        carla, vehicle, controls, None, folder)
+        controller.routes = SimpleNamespace(name='straight', points=[location], length=300, options=[],
+            select=lambda _: None, snapshot=lambda: {},
+            observe=lambda _: dict(progress=0, deviation=0, finished=False))
+        return controller, controls, state, tm
+
+    def test_autonomous_start_hazard_stop_and_deliberate_manual_takeover(self):
+        with tempfile.TemporaryDirectory() as folder:
+            controller, controls, state, _ = self.autonomy_fixture(folder)
+            controller.command(dict(action='mode', data={'mode': 'AUTONOMOUS'}, commandId=1))
+            self.assertTrue(state.autopilot)
+            applied = state.applied
+            controller.tick()
+            self.assertIs(state.applied, applied)  # Manual loop must not overwrite Traffic Manager.
+            controller.scenarios.hazard = controller.vehicle.get_location()
+            controller.tick()
+            self.assertEqual(controls.snapshot()['mode'], 'TAKEOVER_REQUESTED')
+            self.assertFalse(state.autopilot)
+            self.assertEqual(state.applied.brake, 1)
+            controller.command(dict(action='mode', data={'mode': 'MANUAL'}, commandId=2))
+            controls.accept(dict(commandId=3, throttle=.5, brake=0, steer=0))
+            controller.tick()
+            self.assertEqual(state.applied.throttle, .5)
+            self.assertFalse(state.autopilot)
+
+    def test_failed_or_cancelled_autonomy_start_disables_tm_and_brakes(self):
+        for cancel in (False, True):
+            with self.subTest(cancel=cancel), tempfile.TemporaryDirectory() as folder:
+                controller, controls, state, tm = self.autonomy_fixture(folder)
+                def fail(*_):
+                    if cancel:
+                        controls.stop('Emergency stop')
+                    else:
+                        raise RuntimeError('Route RPC failed')
+                tm.set_path = fail
+                with self.assertRaises((RuntimeError, ValueError)):
+                    controller.command(dict(action='mode', data={'mode': 'AUTONOMOUS'}, commandId=1))
+                self.assertFalse(state.autopilot)
+                self.assertTrue(controls.is_latched())
+                self.assertEqual(state.applied.brake, 1)
+
     def test_manual_authority_never_overwrites_autonomy_and_fresh_supervision_expires(self):
         state = ControlState(timeout=.05)
         state.supervise()

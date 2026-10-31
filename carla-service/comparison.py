@@ -80,9 +80,10 @@ def image_metrics(candidate, reference):
 
 
 class ComparisonPipeline:
-    def __init__(self, device='auto', raft_weights=None, delay_ms=200, method='raft', view='compare', reference=False):
+    def __init__(self, device='auto', raft_weights=None, delay_ms=200, method='raft', view='compare', reference=False, raft_iterations=12):
         self.history = FrameHistory()
         self.device, self.raft_weights = device, raft_weights
+        self.raft_iterations = raft_iterations
         self.predictors = {}
         self.lock = threading.Lock()
         self.revision = 0
@@ -137,7 +138,10 @@ class ComparisonPipeline:
             image = item.value
             return np.frombuffer(image.raw_data, np.uint8).reshape(image.height, image.width, 4)[:, :, :3].copy()
 
-        current, baseline = pixels(reference), pixels(delayed)
+        show_reference = settings['view'] == 'reference' or (settings['view'] == 'compare' and settings['reference'])
+        current = pixels(reference) if evaluate or show_reference else None
+        baseline = pixels(delayed)
+        earlier = None
         horizon = max(0.0, (reference.timestamp - delayed.timestamp) * 1000)
         interval = delayed.timestamp - previous.timestamp if previous else None
         details.update(referenceFrame=reference.frame_id, delayedFrame=delayed.frame_id,
@@ -156,12 +160,13 @@ class ComparisonPipeline:
                 try:
                     method = settings['method']
                     if method not in self.predictors:
-                        kwargs = {'device': self.device}
+                        kwargs = {'device': self.device, 'iterations': self.raft_iterations}
                         if self.raft_weights is not None:
                             kwargs['weights'] = self.raft_weights
                         self.predictors[method] = PredictionView(method, **kwargs)
                     predict_started = time.monotonic()
-                    predicted = self.predictors[method].predict_pair(pixels(previous), baseline, interval, horizon)
+                    earlier = pixels(previous)
+                    predicted = self.predictors[method].predict_pair(earlier, baseline, interval, horizon)
                     details['predictionMs'] = (time.monotonic() - predict_started) * 1000
                 except Exception as error:
                     # A failed estimate is never silently replaced by the reference.
@@ -176,6 +181,8 @@ class ComparisonPipeline:
             # The recorder computes metrics on its bounded worker queue. Neither
             # the baseline nor inference waits for SSIM or image compression.
             samples = {'reference': current, 'delayed': baseline}
+            if previous is not None:
+                samples['previous'] = earlier if earlier is not None else pixels(previous)
             if predicted is not None:
                 samples['predicted'] = predicted
         metrics = {'enabled': False}
@@ -183,7 +190,7 @@ class ComparisonPipeline:
             # Detection operates on the delayed observation, never leaks reference pixels.
             annotated, metrics = annotate(baseline, timestamp=delayed.timestamp)
         else:
-            annotated = baseline.copy()
+            annotated = baseline
 
         def label(image, title, line):
             image = image.copy()
@@ -192,20 +199,18 @@ class ComparisonPipeline:
             cv2.putText(image, line, (8, 34), cv2.FONT_HERSHEY_SIMPLEX, .4, (255, 255, 255), 1)
             return image
 
-        delayed_view = label(annotated, 'DELAYED - NO PREDICTION', f'Injected {settings["delayMs"]} ms | source #{delayed.frame_id}')
-        predicted_view = label(predicted if predicted is not None else np.zeros_like(baseline),
-            'PREDICTED - ESTIMATED VIEW', f'{settings["method"].upper()} | +{horizon:.0f} ms | {details["predictionStatus"]}')
-        reference_view = label(current, 'VEHICLE REFERENCE', 'Newest at sender; also has transmission delay')
-        if settings['view'] == 'compare':
-            panels = [delayed_view, predicted_view]
-            if settings['reference']:
-                panels.append(reference_view)
-        else:
-            panels = [{'delayed': delayed_view, 'predicted': predicted_view, 'reference': reference_view}[settings['view']]]
+        panels = []
+        if settings['view'] in ('compare', 'delayed'):
+            panels.append(label(annotated, 'DELAYED - NO PREDICTION', f'Injected {settings["delayMs"]} ms | source #{delayed.frame_id}'))
+        if settings['view'] in ('compare', 'predicted'):
+            panels.append(label(predicted if predicted is not None else np.zeros_like(baseline),
+                'PREDICTED - ESTIMATED VIEW', f'{settings["method"].upper()} | +{horizon:.0f} ms | {details["predictionStatus"]}'))
+        if show_reference:
+            panels.append(label(current, 'VEHICLE REFERENCE', 'Newest at sender; also has transmission delay'))
         details['processingMs'] = (time.monotonic() - started) * 1000
         if not self.is_current(details):
             return None, {**details, 'status': 'stale-or-reset'}, None, metrics
         # Predicted-only cannot authorize driving on a placeholder.
         if settings['view'] == 'predicted' and predicted is None:
             return None, {**details, 'status': 'unavailable'}, samples, metrics
-        return np.hstack(panels), details, samples, metrics
+        return (panels[0] if len(panels) == 1 else np.hstack(panels)), details, samples, metrics

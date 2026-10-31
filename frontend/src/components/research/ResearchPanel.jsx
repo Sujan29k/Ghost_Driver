@@ -49,12 +49,14 @@ export default function ResearchPanel() {
         <option value="forward">Forward</option><option value="reverse">Reverse</option>
       </select>
     </label>
-    <p className="text-ghost-muted">Switch below {research?.directionLimitKmh ?? 1} km/h, then take manual control. W accelerates; S brakes in either direction.</p>
+    <p className="text-ghost-muted">Switch below {research?.directionLimitKmh ?? 1} km/h, then take manual control. W uses 50% throttle; S brakes in either direction.</p>
     <button className={button} disabled={busy || !streamActive || !stopped || research?.direction === 'reverse'} onClick={() => send('mode', { mode: 'AUTONOMOUS' })}>
       {research?.takeover ? 'Return to autonomy' : 'Start autonomous driving'}
     </button>
     <button className={button} disabled={busy || !streamActive} onClick={() => send('mode', { mode: 'MANUAL' })}>Take manual control</button>
     <button className={button} disabled={busy} onClick={() => send('mode', { mode: 'STOPPED' })}>Stop driving</button>
+    <p>Start autonomous driving after video arrives. When a hazard requests takeover, the car brakes; click Take manual control, then use W/A/S/D.</p>
+    {research?.reason && <p role="status">Driving status: {research.reason}</p>}
     <p>Autonomy: CARLA Traffic Manager. YOLO/RAFT are perception and image estimation models.</p>
     {research?.takeover && <p className="text-ghost-warning">{research.takeover.reason} · Source: {research.takeover.source}</p>}
     <p className="text-ghost-muted">Settings and resets stop the car. Starting a scenario or recording during autonomy keeps supervision active.</p>

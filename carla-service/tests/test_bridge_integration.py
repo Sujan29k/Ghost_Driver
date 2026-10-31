@@ -67,7 +67,7 @@ class FakeCarla:
             try_spawn_actor=lambda *_: self.vehicle, spawn_actor=spawn,
             get_snapshot=lambda: SimpleNamespace(find=lambda _: actor, frame=self.frame,
                 timestamp=SimpleNamespace(elapsed_seconds=self.frame / 30)))
-        tm = SimpleNamespace(set_path=lambda *_: None, auto_lane_change=lambda *_: None,
+        tm = SimpleNamespace(set_synchronous_mode=lambda *_: None, set_path=lambda *_: None, auto_lane_change=lambda *_: None,
             vehicle_percentage_speed_difference=lambda *_: None, distance_to_leading_vehicle=lambda *_: None)
         self.Client = lambda *_: SimpleNamespace(set_timeout=lambda _: None, get_trafficmanager=lambda _: tm,
             get_client_version=lambda: version, get_server_version=lambda: version, get_world=lambda: world)

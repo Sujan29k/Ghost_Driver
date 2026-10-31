@@ -4,11 +4,44 @@ The preview estimates a future image; it never controls the vehicle. Frame-pair
 timing comes from CARLA timestamps, not an assumed camera or inference FPS.
 """
 import argparse
+from functools import lru_cache
+import logging
 import math
 from pathlib import Path
 import time
 
 DEFAULT_RAFT_WEIGHTS = Path(__file__).parent / 'ghostdriver/models/raft-small.pth'
+
+
+@lru_cache(maxsize=4)
+def sampling_grid(height, width):
+    import numpy as np
+    return np.meshgrid(np.arange(width, dtype=np.float32), np.arange(height, dtype=np.float32))
+
+
+def warp_flow(current, flow, interval, horizon_ms, motion_scale=0.7, max_displacement=80):
+    """Shared live/offline extrapolation; return image and fraction of capped pixels."""
+    import cv2
+    import numpy as np
+    if not 0 < interval <= 1 or not 0 <= horizon_ms <= 2000:
+        raise ValueError('Invalid timestamped prediction pair')
+    if not math.isfinite(motion_scale) or motion_scale < 0:
+        raise ValueError('Motion scale must be finite and nonnegative')
+    if max_displacement is not None and (not math.isfinite(max_displacement) or max_displacement <= 0):
+        raise ValueError('Displacement cap must be positive or None')
+    if flow.shape != (*current.shape[:2], 2) or not np.isfinite(flow).all():
+        raise ValueError('Invalid motion field')
+    displacement = flow * (horizon_ms / 1000 / interval) * motion_scale
+    magnitude = np.linalg.norm(displacement, axis=2, keepdims=True)
+    capped = 0.0
+    if max_displacement is not None:
+        capped = float(np.mean(magnitude > max_displacement))
+        displacement *= np.minimum(1.0, max_displacement / np.maximum(magnitude, 1e-6))
+    height, width = current.shape[:2]
+    gx, gy = sampling_grid(height, width)
+    output = cv2.remap(current, gx + displacement[..., 0], gy + displacement[..., 1],
+                       cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    return output, capped
 
 
 def check_checkpoint(path):
@@ -42,6 +75,7 @@ class RaftFlow:
         state = torch.load(str(check_checkpoint(weights)), map_location='cpu', weights_only=True)
         self.model.load_state_dict({key.removeprefix('module.'): value for key, value in state.items()})
         self.model.to(self.device).eval()
+        logging.getLogger('ghostdriver').info('RAFT-Small device: %s; refinement iterations: %d', self.device, iterations)
         # At least 128px per dimension: the coarsest correlation grid must have
         # more than one cell to avoid division by zero in bilinear sampling.
         self(np.zeros((128, 128, 3), dtype=np.uint8), np.zeros((128, 128, 3), dtype=np.uint8))
@@ -69,13 +103,13 @@ class RaftFlow:
 
 
 class PredictionView:
-    def __init__(self, method='raft', horizon_ms=250, weights=DEFAULT_RAFT_WEIGHTS, device='auto'):
+    def __init__(self, method='raft', horizon_ms=250, weights=DEFAULT_RAFT_WEIGHTS, device='auto', iterations=12):
         import cv2
         import numpy as np
         self.cv2, self.np = cv2, np
         self.method, self.horizon_ms = method, horizon_ms
         self.previous, self.previous_at = None, None
-        self.flow = RaftFlow(weights, device) if method == 'raft' else self.farneback
+        self.flow = RaftFlow(weights, device, iterations) if method == 'raft' else self.farneback
 
     def farneback(self, previous, current):
         cv2 = self.cv2
@@ -93,13 +127,7 @@ class PredictionView:
         flow = self.flow(previous, current)
         if not np.isfinite(flow).all():
             raise RuntimeError('Motion model returned non-finite flow')
-        displacement = flow * (horizon_ms / 1000 / interval) * 0.7
-        magnitude = np.linalg.norm(displacement, axis=2, keepdims=True)
-        displacement *= np.minimum(1.0, 80 / np.maximum(magnitude, 1e-6))
-        height, width = current.shape[:2]
-        gx, gy = np.meshgrid(np.arange(width, dtype=np.float32), np.arange(height, dtype=np.float32))
-        return cv2.remap(current, gx + displacement[..., 0], gy + displacement[..., 1],
-                         cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        return warp_flow(current, flow, interval, horizon_ms)[0]
 
     def process(self, current, timestamp):
         cv2, np = self.cv2, self.np
@@ -112,13 +140,7 @@ class PredictionView:
             flow = self.flow(self.previous, current)
             if not np.isfinite(flow).all():
                 raise RuntimeError('Motion model returned non-finite flow')
-            displacement = flow * (self.horizon_ms / 1000 / interval) * 0.7
-            magnitude = np.linalg.norm(displacement, axis=2, keepdims=True)
-            displacement *= np.minimum(1.0, 80 / np.maximum(magnitude, 1e-6))
-            height, width = current.shape[:2]
-            gx, gy = np.meshgrid(np.arange(width, dtype=np.float32), np.arange(height, dtype=np.float32))
-            predicted = cv2.remap(current, gx + displacement[..., 0], gy + displacement[..., 1],
-                                  cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            predicted = warp_flow(current, flow, interval, self.horizon_ms)[0]
         self.previous, self.previous_at = current.copy(), timestamp
         label = f'{self.method.upper()} estimate +{self.horizon_ms} ms' if ready else 'Prediction buffering'
         cv2.putText(predicted, label, (12, 26), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)

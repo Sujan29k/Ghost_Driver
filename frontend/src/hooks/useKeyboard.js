@@ -14,7 +14,7 @@ export default function useKeyboard() {
       if (state.researchVersion && (state.researchPending || state.research?.mode !== 'MANUAL')) return;
       const enabled = state.streamActive && focused && document.hasFocus() && !document.hidden;
       socket.volatile.emit('control:direct', { sequence: ++sequence,
-        throttle: enabled && keys.has('w') && !keys.has('s') ? 1 : 0,
+        throttle: enabled && keys.has('w') && !keys.has('s') ? 0.5 : 0,
         brake: !enabled || keys.has('s') ? 1 : 0,
         steer: enabled ? (Number(keys.has('d')) - Number(keys.has('a'))) * 0.5 : 0,
         manualInput: enabled && keys.size > 0 });
