@@ -12,7 +12,7 @@ import queue
 import time
 from control_state import ControlState
 from perception import DEFAULT_WEIGHTS
-from prediction import DEFAULT_RAFT_WEIGHTS
+from prediction import DEFAULT_RAFT_WEIGHTS, DEFAULT_RAFT_ITERATIONS
 from traffic import TrafficScene
 
 log = logging.getLogger('ghostdriver')
@@ -46,7 +46,7 @@ async def run(args):
         from comparison import ComparisonPipeline
         pipeline = ComparisonPipeline(args.device, args.raft_weights, args.video_delay,
                                       args.prediction, args.view, args.show_reference,
-                                      raft_iterations=getattr(args, 'raft_iterations', 12))
+                                      raft_iterations=getattr(args, 'raft_iterations', DEFAULT_RAFT_ITERATIONS))
     quit_event = threading.Event()
     controls = ControlState()
     image_lock = threading.Lock()
@@ -381,12 +381,12 @@ async def run(args):
                 prediction='off' if pipeline else getattr(args, 'prediction', 'off'),
                 prediction_ms=getattr(args, 'prediction_ms', 250),
                 raft_weights=getattr(args, 'raft_weights', DEFAULT_RAFT_WEIGHTS),
-                raft_iterations=getattr(args, 'raft_iterations', 12))
+                raft_iterations=getattr(args, 'raft_iterations', DEFAULT_RAFT_ITERATIONS))
         if pipeline and pipeline.configuration()['method'] == 'raft' and pipeline.configuration()['view'] in ('compare', 'predicted'):
             from prediction import PredictionView
             log.info('Loading RAFT-Small comparison checkpoint: %s', args.raft_weights)
             pipeline.predictors['raft'] = PredictionView('raft', weights=args.raft_weights, device=args.device,
-                                                        iterations=getattr(args, 'raft_iterations', 12))
+                                                        iterations=getattr(args, 'raft_iterations', DEFAULT_RAFT_ITERATIONS))
         set_phase('connecting-carla')
         client = carla.Client(args.host, args.port)
         client.set_timeout(10.0)
@@ -444,7 +444,7 @@ async def run(args):
                 args.tm_port, args.seed, args.direction_speed_limit,
                 {'carlaClient': client.get_client_version(), 'carlaServer': client.get_server_version(),
                  'yolo': {**checkpoint(args.weights), 'classes': getattr(getattr(perception, 'model', None), 'names', None)},
-                 'raft': {**checkpoint(args.raft_weights), 'iterations': getattr(args, 'raft_iterations', 12)}, 'packages': versions,
+                 'raft': {**checkpoint(args.raft_weights), 'iterations': getattr(args, 'raft_iterations', DEFAULT_RAFT_ITERATIONS)}, 'packages': versions,
                  'senderSources': {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in Path(__file__).parent.glob('*.py')},
                  'extrapolation': {'flow': 'backward delayed-to-previous', 'motionScale': .7, 'maxDisplacementPixels': 80},
                  'traffic': dict(scene.counts), 'trafficSeed': args.seed,
@@ -566,7 +566,7 @@ def parse_args(argv=None, environ=None):
     parser.add_argument('--device', default=env.get('AI_DEVICE', 'auto'), help='auto, cpu, or CUDA index such as 0')
     parser.add_argument('--confidence', type=float, default=0.4)
     parser.add_argument('--ai-fps', type=float, default=env.get('AI_FPS', '30'), help='Maximum inference frequency; actual FPS depends on compute and transport')
-    parser.add_argument('--raft-iterations', type=int, default=env.get('RAFT_ITERATIONS', '12'), help='RAFT refinements (1-32); fewer can be faster but less accurate')
+    parser.add_argument('--raft-iterations', type=int, default=env.get('RAFT_ITERATIONS', DEFAULT_RAFT_ITERATIONS), help='RAFT refinements (1-32, default: %(default)s); fewer can be faster but less accurate')
     parser.add_argument('--optical-flow', action='store_true', help='Add a side-by-side Farneback motion view')
     parser.add_argument('--prediction', choices=['off', 'raft', 'farneback'], default=env.get('PREDICTION', 'off'),
                         help='Optional estimated future view beside live YOLO video')

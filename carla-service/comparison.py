@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import math
 import threading
 import time
+from prediction import DEFAULT_RAFT_ITERATIONS
 
 DELAYS = (0, 100, 200, 500, 800)
 VIEWS = ('compare', 'delayed', 'predicted', 'reference')
@@ -80,7 +81,7 @@ def image_metrics(candidate, reference):
 
 
 class ComparisonPipeline:
-    def __init__(self, device='auto', raft_weights=None, delay_ms=200, method='raft', view='compare', reference=False, raft_iterations=12):
+    def __init__(self, device='auto', raft_weights=None, delay_ms=200, method='raft', view='compare', reference=False, raft_iterations=DEFAULT_RAFT_ITERATIONS):
         self.history = FrameHistory()
         self.device, self.raft_weights = device, raft_weights
         self.raft_iterations = raft_iterations

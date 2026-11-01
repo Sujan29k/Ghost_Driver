@@ -5,7 +5,7 @@ The image-area warning is advisory, not a distance estimate or driving policy.
 """
 from pathlib import Path
 import time
-from prediction import check_checkpoint, DEFAULT_RAFT_WEIGHTS
+from prediction import check_checkpoint, DEFAULT_RAFT_WEIGHTS, DEFAULT_RAFT_ITERATIONS
 
 DEFAULT_WEIGHTS = Path(__file__).parent / 'ghostdriver/yolov8n_coco128-5/weights/best.pt'
 ROAD_CLASSES = {'car', 'truck', 'bus', 'person', 'bicycle', 'motorcycle'}
@@ -13,7 +13,7 @@ ROAD_CLASSES = {'car', 'truck', 'bus', 'person', 'bicycle', 'motorcycle'}
 
 class Perception:
     def __init__(self, weights=DEFAULT_WEIGHTS, device='auto', confidence=0.4, flow=False,
-                 prediction='off', prediction_ms=250, raft_weights=DEFAULT_RAFT_WEIGHTS, raft_iterations=12):
+                 prediction='off', prediction_ms=250, raft_weights=DEFAULT_RAFT_WEIGHTS, raft_iterations=DEFAULT_RAFT_ITERATIONS):
         from ultralytics import YOLO
         import cv2
         import numpy as np

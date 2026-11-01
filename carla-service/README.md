@@ -85,7 +85,12 @@ For a lighter RAFT test, run this from the project root on the GPU computer:
 
 Predicted-only sends one panel and avoids YOLO annotation work in the research
 pipeline. Six RAFT iterations trade possible accuracy for less computation; the
-default remains 12. Check the startup log for `RAFT-Small device: cuda:0` and compare
+default is 9. Existing sender `.env` files retain their saved value: set
+`RAFT_ITERATIONS=9` there, or pass `--raft-iterations 9`, and restart the sender
+to use nine refinements. The live pipeline, model checks and offline benchmark
+share the nine-iteration default. This reduces refinement work compared with 12;
+the FPS and accuracy difference must be measured on the GPU computer.
+Check the startup log for `RAFT-Small device: cuda:0` and compare
 dashboard FPS and prediction compute time against the original configuration.
 Use `--view compare` for side-by-side output. Pass the same `--raft-iterations`
 value to `benchmark_prediction.py` when evaluating a recording. Neither the FPS

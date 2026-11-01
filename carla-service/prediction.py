@@ -11,6 +11,7 @@ from pathlib import Path
 import time
 
 DEFAULT_RAFT_WEIGHTS = Path(__file__).parent / 'ghostdriver/models/raft-small.pth'
+DEFAULT_RAFT_ITERATIONS = 9
 
 
 @lru_cache(maxsize=4)
@@ -55,7 +56,7 @@ def check_checkpoint(path):
 
 
 class RaftFlow:
-    def __init__(self, weights=DEFAULT_RAFT_WEIGHTS, device='auto', iterations=12):
+    def __init__(self, weights=DEFAULT_RAFT_WEIGHTS, device='auto', iterations=DEFAULT_RAFT_ITERATIONS):
         import cv2
         import numpy as np
         import torch
@@ -103,7 +104,7 @@ class RaftFlow:
 
 
 class PredictionView:
-    def __init__(self, method='raft', horizon_ms=250, weights=DEFAULT_RAFT_WEIGHTS, device='auto', iterations=12):
+    def __init__(self, method='raft', horizon_ms=250, weights=DEFAULT_RAFT_WEIGHTS, device='auto', iterations=DEFAULT_RAFT_ITERATIONS):
         import cv2
         import numpy as np
         self.cv2, self.np = cv2, np

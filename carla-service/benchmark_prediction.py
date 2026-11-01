@@ -8,7 +8,7 @@ import statistics
 import time
 
 from evaluate_trials import validate_alignment
-from prediction import DEFAULT_RAFT_WEIGHTS, PredictionView, warp_flow
+from prediction import DEFAULT_RAFT_WEIGHTS, DEFAULT_RAFT_ITERATIONS, PredictionView, warp_flow
 
 
 def load_sample(path):
@@ -90,7 +90,7 @@ def main():
     parser.add_argument('--method', choices=('raft', 'farneback'), default='raft')
     parser.add_argument('--weights', type=Path, default=DEFAULT_RAFT_WEIGHTS)
     parser.add_argument('--device', default='auto')
-    parser.add_argument('--raft-iterations', type=int, default=12, help='Match the sender setting for comparable results')
+    parser.add_argument('--raft-iterations', type=int, default=DEFAULT_RAFT_ITERATIONS, help='Match the sender setting for comparable results (default: %(default)s)')
     parser.add_argument('--scales', type=float, nargs='+', default=[0.7, 1.0])
     parser.add_argument('--caps', type=cap_value, nargs='+', default=[80, 160, None])
     args = parser.parse_args()
