@@ -117,19 +117,19 @@ def main():
                         'Identical images have infinite PSNR, stored as null and excluded from the finite PSNR mean.',
                         'Timing includes shared flow inference plus per-setting warp, excludes scoring, startup and transport.',
                         'Adjacent samples are correlated. Confirm candidate settings on separate drives; image scores do not prove driving benefit.']}
-    (args.output / 'report.json').write_text(json.dumps(report, indent=2, allow_nan=False) + '\n')
+    (args.output / 'report.json').write_text(json.dumps(report, indent=2, allow_nan=False) + '\n', encoding='utf-8')
     if rows:
-        with (args.output / 'samples.csv').open('w', newline='') as output:
+        with (args.output / 'samples.csv').open('w', newline='', encoding='utf-8') as output:
             writer = csv.DictWriter(output, fieldnames=list(rows[0]))
             writer.writeheader()
             writer.writerows(rows)
     lines = ['# Prediction sweep', '', *report['notes'], '',
-             '| Setting | Samples | MAE ↓ | SSIM ↑ | MAE win % | Cap hit % | Prediction ms |',
+             '| Setting | Samples | MAE | SSIM | MAE win % | Cap hit % | Prediction ms |',
              '|---|---:|---:|---:|---:|---:|---:|']
     for row in summaries:
         lines.append(f'| {row["setting"]} | {row["samples"]} | {row["mae"]:.4f} | {row["ssim"]:.4f} | {row["maeWinPercent"]:.1f} | {row["cappedPercent"]:.2f} | {row["predictionMs"]:.2f} |')
     lines += ['', f'Skipped samples: {len(skipped)}. See report.json for reasons.']
-    (args.output / 'report.md').write_text('\n'.join(lines) + '\n')
+    (args.output / 'report.md').write_text('\n'.join(lines) + '\n', encoding='utf-8')
     print(f'Report: {args.output / "report.md"}; evaluated {len(paths) - len(skipped)}, skipped {len(skipped)} samples')
     if not rows:
         parser.exit(1, 'No replayable samples; inspect report.json and record new input pairs.\n')
