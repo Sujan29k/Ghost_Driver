@@ -561,7 +561,7 @@ def parse_args(argv=None, environ=None):
     parser.add_argument('--vehicle', default='vehicle.tesla.model3', help='Blueprint filter')
     parser.add_argument('--width', type=int, default=640)
     parser.add_argument('--height', type=int, default=360)
-    parser.add_argument('--ai', choices=['yolo', 'off'], default=env.get('AI_MODE', 'yolo'), help='YOLO annotations or raw camera')
+    parser.add_argument('--ai', choices=['yolo', 'off'], default=env.get('AI_MODE', 'off'), help='YOLO annotations or raw camera')
     parser.add_argument('--weights', type=Path, default=DEFAULT_WEIGHTS, help='Local trained YOLO checkpoint')
     parser.add_argument('--device', default=env.get('AI_DEVICE', 'auto'), help='auto, cpu, or CUDA index such as 0')
     parser.add_argument('--confidence', type=float, default=0.4)
